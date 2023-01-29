@@ -5,3 +5,10 @@
 /RDFPlugin/x64/Debug
 /RDFPlugin/Release/RDFPlugin.tlog
 /.vs/RDFPlugin
+/.vs
+/Debug
+/RDFPlugin/Debug
+/RDFPlugin/Release
+/Release/RDFPlugin.pdb
+/Release/RDFPlugin.lib
+/Release/RDFPlugin.exp
