@@ -92,7 +92,7 @@ void CRDFPlugin::ProcessMessage(std::string message)
 			std::string previousActiveTransmittingPilos;
 			for (const auto& piece : previousActiveTransmittingPilots) previousActiveTransmittingPilos += piece;
 
-			DisplayUserMessage("Message", "RDF Plugin", (std::string("End of transmission for  ") + previousActiveTransmittingPilos).c_str(), false, false, false, false, false);
+			DisplayUserMessage("RDF-DEBUG", "", (std::string("End of transmission for  ") + previousActiveTransmittingPilos).c_str(), true, true, true, false, false);
 #endif
 		}
 	}
@@ -125,7 +125,7 @@ COLORREF CRDFPlugin::GetRGB(const char* settingValue)
 			string greenString = circleRGB.substr(firstColonIndex + 1, secondColonIndex - firstColonIndex - 1);
 			string blueString = circleRGB.substr(secondColonIndex + 1, circleRGB.size() - secondColonIndex - 1);
 #ifdef _DEBUG
-			DisplayUserMessage("Message", "RDF Plugin", (std::string("R: ") + redString + std::string(" G: ") + greenString + std::string(" B: ") + blueString).c_str(), false, false, false, false, false);
+			DisplayUserMessage("RDF-DEBUG", "", (std::string("R: ") + redString + std::string(" G: ") + greenString + std::string(" B: ") + blueString).c_str(), true, true, true, false, false);
 #endif
 
 			if (!redString.empty() && !greenString.empty() && !blueString.empty())
@@ -135,17 +135,17 @@ COLORREF CRDFPlugin::GetRGB(const char* settingValue)
 		}
 	}
 }
-CRadarScreen * CRDFPlugin::OnRadarScreenCreated(const char * sDisplayName,
+CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool NeedRadarContent,
 	bool GeoReferenced,
 	bool CanBeSaved,
 	bool CanBeCreated)
 {
 	DisplayUserMessage("Message", "RDF Plugin", (std::string("Radio Direction Finder plugin activated on ") + sDisplayName).c_str(), false, false, false, false, false);
-	
+
 	COLORREF rdfRGB = RGB(255, 255, 255);	// Default: white
 	COLORREF rdfConcurrentTransmissionRGB = RGB(255, 0, 0);	// Default: red
-	int circleRadius = 50;
+	int circleRadius = 20;
 
 	try
 	{
@@ -169,7 +169,7 @@ CRadarScreen * CRDFPlugin::OnRadarScreenCreated(const char * sDisplayName,
 				circleRadius = parsedRadius;
 
 #ifdef _DEBUG
-				DisplayUserMessage("Message", "RDF Plugin", (std::string("Radius: ") + std::to_string(circleRadius)).c_str(), false, false, false, false, false);
+				DisplayUserMessage("RDF-DEBUG", "", (std::string("Radius: ") + std::to_string(circleRadius)).c_str(), true, true, true, false, false);
 #endif
 			}
 		}
