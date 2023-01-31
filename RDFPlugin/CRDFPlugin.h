@@ -1,12 +1,18 @@
-#include <EuroScopePlugIn.h>
+#pragma once
+
+#include "stdafx.h"
 #include <string>
 #include <chrono>
 #include <mutex>
 #include <queue>
 #include <set>
+#include <map>
+#include <random>
+#include <stdexcept>
+#include <sstream>
+#include <iostream>
+#include <future>
 #include "HiddenWindow.h"
-
-#pragma once
 
 using namespace std;
 using namespace EuroScopePlugIn;
@@ -16,26 +22,29 @@ const string MY_PLUGIN_VERSION = "1.3.0";
 const string MY_PLUGIN_DEVELOPER = "Claus Hemberg Joergensen, Kingfu Chan";
 const string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 
-class CRDFPlugin: public EuroScopePlugIn::CPlugIn
+typedef map<string, CPosition> callsign_position;
+
+class CRDFPlugin : public EuroScopePlugIn::CPlugIn
 {
 private:
-	int rxcount = 0;
-	set<string> activeTransmittingPilots;
-	set<string> previousActiveTransmittingPilots;
-	chrono::steady_clock::time_point lastOnGetTagItemTime = std::chrono::steady_clock::now();
-	
-	void ProcessMessage(std::string message);
+	COLORREF GetRGB(const char* settingValue);
 
-	set<string> SplitString(string str);
+	int circlePrecision;
+	random_device randomDevice;
+	mt19937 rdGenerator;
+	uniform_real_distribution<> disUniform;
+	normal_distribution<> disNormal;
+	CPosition AddRandomOffset(CPosition pos);
+
+	future<string> VectorAudioTransmission;
+	string GetVectorAudioInfo(string param);
 
 	HWND hiddenWindow = NULL;
 
 	// Lock for the message queue
 	mutex messageLock;
-
 	// Internal message quque
-	queue<string> messages;
-
+	queue<set<string>> messages;
 
 	// Class for our window
 	WNDCLASS windowClass = {
@@ -55,22 +64,12 @@ private:
 public:
 	CRDFPlugin();
 	virtual ~CRDFPlugin();
-
 	void OnTimer(int counter) override;
 	void AddMessageToQueue(string message);
+	virtual CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
 
-	COLORREF GetRGB(const char* settingValue);
+	callsign_position activeTransmittingPilots;
+	callsign_position previousActiveTransmittingPilots;
 
-	virtual CRadarScreen *OnRadarScreenCreated(const char * sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
-
-	inline set<string>& GetActiveTransmittingPilots()
-	{
-		return activeTransmittingPilots;
-	}
-
-	inline set<string>& GetPreviousActiveTransmittingPilots()
-	{
-		return previousActiveTransmittingPilots;
-	}
 };
 

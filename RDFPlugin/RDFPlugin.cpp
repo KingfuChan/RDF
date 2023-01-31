@@ -2,7 +2,6 @@
 //
 
 #include "stdafx.h"
-#include "EuroScopePlugIn.h"
 #include "CRDFPlugin.h"
 
 CRDFPlugin  * gpMyPlugin = NULL;

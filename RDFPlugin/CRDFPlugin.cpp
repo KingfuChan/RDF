@@ -1,15 +1,13 @@
 #include "stdafx.h"
 #include "CRDFPlugin.h"
 #include "CRDFScreen.h"
-#include <stdexcept>
-#include <sstream>
-#include <iostream>
 
 #pragma comment(lib, "wininet.lib")
 
 using namespace std;
 
-const   int     TAG_ITEM_VOICERECEIVE = 1;
+const double pi = 3.141592653589793;
+const double EarthRadius = 6371.393 / 1.852; // nautical miles
 
 CRDFPlugin::CRDFPlugin()
 	: EuroScopePlugIn::CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
@@ -37,17 +35,13 @@ CRDFPlugin::CRDFPlugin()
 	);
 
 	if (GetLastError() != S_OK) {
-		DisplayUserMessage(
-			"RDF",
-			"RDF",
-			"Unable to open communications for RDF plugin",
-			true,
-			true,
-			true,
-			true,
-			true
-		);
+		DisplayUserMessage("Message", "RDF Plugin", "Unable to open communications for RDF plugin", false, false, false, false, false);
 	}
+
+	circlePrecision = 0;
+	this->rdGenerator = mt19937(this->randomDevice());
+	this->disUniform = uniform_real_distribution<>(0, 180);
+	this->disNormal = normal_distribution<>(0, 1);
 
 }
 
@@ -66,49 +60,113 @@ void CRDFPlugin::OnTimer(int counter)
 {
 	std::lock_guard<std::mutex> lock(this->messageLock);
 
-	// Process any incoming messages from the standalone client
-	while (this->messages.size() != 0) {
-		this->ProcessMessage(this->messages.front());
-		this->messages.pop();
+	// Process VectorAudio message
+	if (VectorAudioTransmission.valid() && VectorAudioTransmission.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+		string res = VectorAudioTransmission.get();
+		if (res.size()) {
+#ifdef _DEBUG
+			DisplayUserMessage("RDF-DEBUG", "", (string("VectorAudio message: ") + res).c_str(), true, true, true, false, false);
+#endif // _DEBUG
+			set<string> strings;
+			istringstream f(res);
+			string s;
+			while (getline(f, s, ',')) {
+				strings.insert(s);
+			}
+			this->messages.push(strings);
+		}
+		else {
+			this->messages.push(set<string>());
+		}
 	}
+
+	// Process all incoming messages
+	while (this->messages.size() > 0) {
+		set<string> amessage = this->messages.front();
+		this->messages.pop();
+
+		// remove existing records
+		for (auto itr = activeTransmittingPilots.begin(); itr != activeTransmittingPilots.end();) {
+			if (amessage.erase(itr->first)) { // remove still transmitting from message
+				itr++;
+			}
+			else {
+				// no removal, means stopped transmission, need to also remove from map
+				activeTransmittingPilots.erase(itr++);
+			}
+		}
+
+		// add new active transmitting records
+		for (const auto& callsign : amessage) {
+			auto radarTarget = RadarTargetSelect(callsign.c_str());
+			if (radarTarget.IsValid()) {
+				CPosition pos = radarTarget.GetPosition().GetPosition();
+				pos = AddRandomOffset(pos);
+				activeTransmittingPilots[callsign] = pos;
+			}
+			else {
+				auto controller = ControllerSelect(callsign.c_str());
+				if (controller.IsValid()) {
+					CPosition pos = controller.GetPosition();
+					if (!controller.IsController()) { // for shared cockpit
+						pos = AddRandomOffset(pos);
+					}
+					activeTransmittingPilots[callsign] = pos;
+				}
+			}
+		}
+
+		if (!activeTransmittingPilots.empty()) {
+			previousActiveTransmittingPilots = activeTransmittingPilots;
+		}
+	}
+
+	// GET VectorAudio
+	VectorAudioTransmission = async(&CRDFPlugin::GetVectorAudioInfo, this, "/transmitting");
 }
 
 void CRDFPlugin::AddMessageToQueue(std::string message)
 {
 	std::lock_guard<std::mutex> lock(this->messageLock);
-	this->messages.push(message);
-}
-
-void CRDFPlugin::ProcessMessage(std::string message)
-{
-	if (message.empty()) {
-
-		// Marks end of transmission
-		if (!activeTransmittingPilots.empty())
-		{
-			previousActiveTransmittingPilots = activeTransmittingPilots;
-			activeTransmittingPilots.clear();
+	if (message.size()) {
 #ifdef _DEBUG
-			std::string previousActiveTransmittingPilos;
-			for (const auto& piece : previousActiveTransmittingPilots) previousActiveTransmittingPilos += piece;
-
-			DisplayUserMessage("RDF-DEBUG", "", (std::string("End of transmission for  ") + previousActiveTransmittingPilos).c_str(), true, true, true, false, false);
-#endif
+		DisplayUserMessage("RDF-DEBUG", "", (string("AFV message: ") + message).c_str(), true, true, true, false, false);
+#endif // _DEBUG
+		set<string> strings;
+		istringstream f(message);
+		string s;
+		while (getline(f, s, ':')) {
+			strings.insert(s);
 		}
+		this->messages.push(strings);
 	}
-
-	activeTransmittingPilots = SplitString(message);
+	else {
+		this->messages.push(set<string>());
+	}
 }
 
-set<string> CRDFPlugin::SplitString(string str) {
-	set<string> strings;
-	istringstream f(str);
-	string s;
-	while (getline(f, s, ':')) {
-		strings.insert(s);
-	}
+string CRDFPlugin::GetVectorAudioInfo(string param)
+{
+	try {
+		httplib::Client cli("http://10.211.55.2:49080");
+		cli.set_connection_timeout(0, 200);
 
-	return strings;
+		if (auto res = cli.Get(param)) {
+			if (res->status == 200) {
+				cli.stop();
+				return res->body;
+			}
+			else {
+				cli.stop();
+				return "";
+			}
+		}
+		cli.stop();
+	}
+	catch (const std::exception& exc) {
+		return "";
+	}
+	return "";
 }
 
 COLORREF CRDFPlugin::GetRGB(const char* settingValue)
@@ -135,6 +193,31 @@ COLORREF CRDFPlugin::GetRGB(const char* settingValue)
 		}
 	}
 }
+
+CPosition CRDFPlugin::AddRandomOffset(CPosition pos)
+{
+	double distance = disNormal(rdGenerator) * (double)circlePrecision / 2.0;
+	double angle = disUniform(rdGenerator);
+	double startLat = pos.m_Latitude / 180.0 * pi;
+	double startLong = pos.m_Longitude / 180.0 * pi;
+	double lat2 = asin(sin(startLat) * cos(distance / EarthRadius) + cos(startLat) * sin(distance / EarthRadius) * cos(angle));
+	double lon2 = startLong + atan2(sin(angle) * sin(distance / EarthRadius) * cos(startLat), cos(distance / EarthRadius) - sin(startLat) * sin(lat2));
+
+	CPosition posnew;
+	posnew.m_Latitude = lat2 / pi * 180.0;
+	posnew.m_Longitude = lon2 / pi * 180.0;
+
+#ifdef _DEBUG
+	string lats1 = to_string(pos.m_Latitude);
+	string lons1 = to_string(pos.m_Longitude);
+	string lats2 = to_string(posnew.m_Latitude);
+	string lons2 = to_string(posnew.m_Longitude);
+	OutputDebugString((lons1 + "," + lats1 + "\t" + lons2 + "," + lats2 + "\n").c_str());
+#endif // _DEBUG
+
+	return posnew;
+}
+
 CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool NeedRadarContent,
 	bool GeoReferenced,
