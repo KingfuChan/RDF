@@ -62,21 +62,28 @@ void CRDFPlugin::OnTimer(int counter)
 
 	// Process VectorAudio message
 	if (VectorAudioTransmission.valid() && VectorAudioTransmission.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-		string res = VectorAudioTransmission.get();
-		if (res.size()) {
+		try {
+			string res = VectorAudioTransmission.get();
 #ifdef _DEBUG
 			DisplayUserMessage("RDF-DEBUG", "", (string("VectorAudio message: ") + res).c_str(), true, true, true, false, false);
 #endif // _DEBUG
-			set<string> strings;
-			istringstream f(res);
-			string s;
-			while (getline(f, s, ',')) {
-				strings.insert(s);
+			if (res == "[]") {
+				this->messages.push(set<string>());
 			}
-			this->messages.push(strings);
+			else {
+				set<string> strings;
+				istringstream f(res);
+				string s;
+				while (getline(f, s, ',')) {
+					strings.insert(s);
+				}
+				this->messages.push(strings);
+			}
 		}
-		else {
-			this->messages.push(set<string>());
+		catch (const std::exception& exc) {
+#ifdef _DEBUG
+			DisplayUserMessage("RDF-DEBUG", "", exc.what(), true, true, true, false, false);
+#endif // _DEBUG
 		}
 	}
 
@@ -122,7 +129,7 @@ void CRDFPlugin::OnTimer(int counter)
 	}
 
 	// GET VectorAudio
-	VectorAudioTransmission = async(&CRDFPlugin::GetVectorAudioInfo, this, "/transmitting");
+	VectorAudioTransmission = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/transmitting");
 }
 
 void CRDFPlugin::AddMessageToQueue(std::string message)
@@ -147,26 +154,25 @@ void CRDFPlugin::AddMessageToQueue(std::string message)
 
 string CRDFPlugin::GetVectorAudioInfo(string param)
 {
-	try {
-		httplib::Client cli("http://10.211.55.2:49080");
-		cli.set_connection_timeout(0, 200);
-
-		if (auto res = cli.Get(param)) {
-			if (res->status == 200) {
-				cli.stop();
-				return res->body;
+	// returns "[]" when not transmitting
+	httplib::Client cli("http://10.211.55.2:49080");
+	cli.set_connection_timeout(0, 300000); // 300,000 usec = 300 millisecond
+	if (auto res = cli.Get(param)) {
+		if (res->status == 200) {
+			string rbd = res->body;
+			if (rbd.size()) {
+				return rbd;
 			}
 			else {
-				cli.stop();
-				return "";
+				return "[]";
 			}
 		}
-		cli.stop();
+		else {
+			auto err = res.error();
+			throw runtime_error("HTTP error: " + httplib::to_string(err));
+		}
 	}
-	catch (const std::exception& exc) {
-		return "";
-	}
-	return "";
+	throw runtime_error("Unknown error");
 }
 
 COLORREF CRDFPlugin::GetRGB(const char* settingValue)
