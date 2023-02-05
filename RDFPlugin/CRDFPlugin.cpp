@@ -2,8 +2,6 @@
 #include "CRDFPlugin.h"
 #include "CRDFScreen.h"
 
-#pragma comment(lib, "wininet.lib")
-
 using namespace std;
 
 const double pi = 3.141592653589793;
@@ -16,7 +14,7 @@ CRDFPlugin::CRDFPlugin()
 		MY_PLUGIN_DEVELOPER.c_str(),
 		MY_PLUGIN_COPYRIGHT.c_str())
 {
-	DisplayUserMessage("Message", "RDF", std::string("Version " + MY_PLUGIN_VERSION + " loaded").c_str(), false, false, false, false, false);
+	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
 
 	RegisterClass(&this->windowClass);
 
@@ -35,8 +33,11 @@ CRDFPlugin::CRDFPlugin()
 	);
 
 	if (GetLastError() != S_OK) {
-		DisplayUserMessage("Message", "RDF Plugin", "Unable to open communications for RDF plugin", false, false, false, false, false);
+		DisplayEuroScopeMessage("Unable to open communications for RDF plugin");
 	}
+
+	useVectorAudio = false;
+	VectorAudioVersion = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/*");
 
 	circlePrecision = 0;
 	this->rdGenerator = mt19937(this->randomDevice());
@@ -58,6 +59,26 @@ CRDFPlugin::~CRDFPlugin()
 */
 void CRDFPlugin::OnTimer(int counter)
 {
+	// check vector audio status
+	if (VectorAudioVersion.valid() && VectorAudioVersion.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
+		try {
+			string res = VectorAudioVersion.get();
+			if (!useVectorAudio && res.size()) {
+				DisplayEuroScopeMessage(string("Connected to ") + res);
+				useVectorAudio = true;
+			}
+		}
+		catch (const std::exception& exc) {
+			if (useVectorAudio) {
+				DisplayEuroScopeMessage(string("Disconnected from vector audio: ") + exc.what());
+			}
+			useVectorAudio = false;
+		}
+	}
+	else if (!useVectorAudio && !(counter % 5)) { // refresh every 5 seconds
+		VectorAudioVersion = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/*");
+	}
+
 	std::lock_guard<std::mutex> lock(this->messageLock);
 
 	// Process VectorAudio message
@@ -65,9 +86,9 @@ void CRDFPlugin::OnTimer(int counter)
 		try {
 			string res = VectorAudioTransmission.get();
 #ifdef _DEBUG
-			DisplayUserMessage("RDF-DEBUG", "", (string("VectorAudio message: ") + res).c_str(), true, true, true, false, false);
+			DisplayEuroScopeDebugMessage(string("VectorAudio message: ") + res);
 #endif // _DEBUG
-			if (res == "[]") {
+			if (!res.size()) {
 				this->messages.push(set<string>());
 			}
 			else {
@@ -82,8 +103,12 @@ void CRDFPlugin::OnTimer(int counter)
 		}
 		catch (const std::exception& exc) {
 #ifdef _DEBUG
-			DisplayUserMessage("RDF-DEBUG", "", exc.what(), true, true, true, false, false);
+			DisplayEuroScopeDebugMessage(exc.what());
 #endif // _DEBUG
+			if (useVectorAudio) {
+				DisplayEuroScopeMessage(string("Disconnected from vector audio: ") + exc.what());
+			}
+			useVectorAudio = false;
 		}
 	}
 
@@ -129,7 +154,9 @@ void CRDFPlugin::OnTimer(int counter)
 	}
 
 	// GET VectorAudio
-	VectorAudioTransmission = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/transmitting");
+	if (useVectorAudio) {
+		VectorAudioTransmission = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/transmitting");
+	}
 }
 
 void CRDFPlugin::AddMessageToQueue(std::string message)
@@ -137,7 +164,7 @@ void CRDFPlugin::AddMessageToQueue(std::string message)
 	std::lock_guard<std::mutex> lock(this->messageLock);
 	if (message.size()) {
 #ifdef _DEBUG
-		DisplayUserMessage("RDF-DEBUG", "", (string("AFV message: ") + message).c_str(), true, true, true, false, false);
+		DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
 #endif // _DEBUG
 		set<string> strings;
 		istringstream f(message);
@@ -154,25 +181,19 @@ void CRDFPlugin::AddMessageToQueue(std::string message)
 
 string CRDFPlugin::GetVectorAudioInfo(string param)
 {
-	// returns "[]" when not transmitting
+	// need to use try-catch in every .get()
 	httplib::Client cli("http://10.211.55.2:49080");
 	cli.set_connection_timeout(0, 300000); // 300,000 usec = 300 millisecond
 	if (auto res = cli.Get(param)) {
 		if (res->status == 200) {
-			string rbd = res->body;
-			if (rbd.size()) {
-				return rbd;
-			}
-			else {
-				return "[]";
-			}
+			return res->body;
 		}
 		else {
 			auto err = res.error();
 			throw runtime_error("HTTP error: " + httplib::to_string(err));
 		}
 	}
-	throw runtime_error("Unknown error");
+	throw runtime_error("Not connected");
 }
 
 COLORREF CRDFPlugin::GetRGB(const char* settingValue)
@@ -189,7 +210,7 @@ COLORREF CRDFPlugin::GetRGB(const char* settingValue)
 			string greenString = circleRGB.substr(firstColonIndex + 1, secondColonIndex - firstColonIndex - 1);
 			string blueString = circleRGB.substr(secondColonIndex + 1, circleRGB.size() - secondColonIndex - 1);
 #ifdef _DEBUG
-			DisplayUserMessage("RDF-DEBUG", "", (std::string("R: ") + redString + std::string(" G: ") + greenString + std::string(" B: ") + blueString).c_str(), true, true, true, false, false);
+			DisplayEuroScopeDebugMessage(string("R: ") + redString + string(" G: ") + greenString + string(" B: ") + blueString);
 #endif
 
 			if (!redString.empty() && !greenString.empty() && !blueString.empty())
@@ -230,7 +251,7 @@ CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool CanBeSaved,
 	bool CanBeCreated)
 {
-	DisplayUserMessage("Message", "RDF Plugin", (std::string("Radio Direction Finder plugin activated on ") + sDisplayName).c_str(), false, false, false, false, false);
+	DisplayEuroScopeMessage(string("Radio Direction Finder plugin activated on ") + sDisplayName);
 
 	COLORREF rdfRGB = RGB(255, 255, 255);	// Default: white
 	COLORREF rdfConcurrentTransmissionRGB = RGB(255, 0, 0);	// Default: red
@@ -258,18 +279,18 @@ CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 				circleRadius = parsedRadius;
 
 #ifdef _DEBUG
-				DisplayUserMessage("RDF-DEBUG", "", (std::string("Radius: ") + std::to_string(circleRadius)).c_str(), true, true, true, false, false);
+				DisplayEuroScopeDebugMessage(string("Radius: ") + to_string(circleRadius));
 #endif
 			}
 		}
 	}
 	catch (std::runtime_error const& e)
 	{
-		DisplayUserMessage("Message", "RDF Plugin", (string("Error: ") + e.what()).c_str(), false, false, false, false, false);
+		DisplayEuroScopeMessage(string("Error: ") + e.what());
 	}
 	catch (...)
 	{
-		DisplayUserMessage("Message", "RDF Plugin", ("Unexpected error: " + std::to_string(GetLastError())).c_str(), false, false, false, false, false);
+		DisplayEuroScopeMessage(string("Unexpected error: ") + to_string(GetLastError()));
 	}
 
 	return new CRDFScreen(this, rdfRGB, rdfConcurrentTransmissionRGB, circleRadius);

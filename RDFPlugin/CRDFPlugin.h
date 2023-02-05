@@ -36,7 +36,9 @@ private:
 	normal_distribution<> disNormal;
 	CPosition AddRandomOffset(CPosition pos);
 
+	future<string> VectorAudioVersion;
 	future<string> VectorAudioTransmission;
+	bool useVectorAudio;
 	string GetVectorAudioInfo(string param);
 
 	HWND hiddenWindow = NULL;
@@ -60,6 +62,15 @@ private:
 	   "RDFHiddenWindowClass"
 	};
 
+#ifdef _DEBUG
+	inline void DisplayEuroScopeDebugMessage(string msg) {
+		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
+	}
+#endif // _DEBUG
+
+	inline void DisplayEuroScopeMessage(string msg) {
+		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
+	}
 
 public:
 	CRDFPlugin();
