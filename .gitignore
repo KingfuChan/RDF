@@ -2,15 +2,11 @@
 # This .gitignore file was automatically created by Microsoft(R) Visual Studio.
 ################################################################################
 
-/RDFPlugin/x64/Debug
-/RDFPlugin/Release/RDFPlugin.tlog
-/.vs/RDFPlugin
-/.vs
-/Debug
-/RDFPlugin/Debug
-/RDFPlugin/Release
-/Release/RDFPlugin.pdb
-/Release/RDFPlugin.lib
-/Release/RDFPlugin.exp
+/.vs/
+/Debug/
 /.DS_Store
 /._.DS_Store
+/Release/
+/RDFPlugin/Debug
+/RDFPlugin/Release
+._README.md

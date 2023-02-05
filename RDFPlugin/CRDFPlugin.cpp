@@ -49,6 +49,7 @@ CRDFPlugin::~CRDFPlugin()
 	if (this->hiddenWindow != NULL) {
 		DestroyWindow(this->hiddenWindow);
 	}
+	UnregisterClass("RDFHiddenWindowClass", NULL);
 }
 
 void CRDFPlugin::OnTimer(int counter)
