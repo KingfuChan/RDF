@@ -27,7 +27,6 @@ typedef map<string, CPosition> callsign_position;
 class CRDFPlugin : public EuroScopePlugIn::CPlugIn
 {
 private:
-	COLORREF GetRGB(const char* settingValue);
 
 	int circlePrecision;
 	random_device randomDevice;
@@ -36,9 +35,11 @@ private:
 	normal_distribution<> disNormal;
 	CPosition AddRandomOffset(CPosition pos);
 
+	string addressVectorAudio;
 	future<string> VectorAudioVersion;
 	future<string> VectorAudioTransmission;
 	bool useVectorAudio;
+	int connectionTimeout, retryInterval;
 	string GetVectorAudioInfo(string param);
 
 	HWND hiddenWindow = NULL;
@@ -62,11 +63,16 @@ private:
 	   "RDFHiddenWindowClass"
 	};
 
-#ifdef _DEBUG
+	bool drawController;
+
+	void GetRGB(COLORREF& color, const char* settingValue);
+	void LoadSettings(void);
+
 	inline void DisplayEuroScopeDebugMessage(string msg) {
+#ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
-	}
 #endif // _DEBUG
+	}
 
 	inline void DisplayEuroScopeMessage(string msg) {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
@@ -78,9 +84,13 @@ public:
 	void OnTimer(int counter) override;
 	void AddMessageToQueue(string message);
 	virtual CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
+	virtual bool OnCompileCommand(const char* sCommandLine);
 
 	callsign_position activeTransmittingPilots;
 	callsign_position previousActiveTransmittingPilots;
+
+	COLORREF rdfRGB, rdfConcurrentTransmissionRGB;
+	int circleRadius;
 
 };
 

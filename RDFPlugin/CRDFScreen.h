@@ -11,14 +11,11 @@ class CRDFScreen : public CRadarScreen
 {
 private:
 	CRDFPlugin* rdfPlugin;
-	COLORREF rdfColor;
-	COLORREF rdfConcurrentTransmissionsColor;
-	int circleRadius;
 
 	bool PlaneIsVisible(POINT p, RECT radarArea);
 
 public:
-	CRDFScreen(CRDFPlugin* plugin, COLORREF rdfColor, COLORREF rdfConcurrentTransmissionColor, int circleRadius);
+	CRDFScreen(CRDFPlugin* plugin);
 	virtual ~CRDFScreen();
 
 	virtual void OnAsrContentToBeClosed(void);

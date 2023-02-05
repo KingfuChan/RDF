@@ -14,8 +14,6 @@ CRDFPlugin::CRDFPlugin()
 		MY_PLUGIN_DEVELOPER.c_str(),
 		MY_PLUGIN_COPYRIGHT.c_str())
 {
-	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
-
 	RegisterClass(&this->windowClass);
 
 	this->hiddenWindow = CreateWindow(
@@ -36,16 +34,15 @@ CRDFPlugin::CRDFPlugin()
 		DisplayEuroScopeMessage("Unable to open communications for RDF plugin");
 	}
 
-	useVectorAudio = false;
-	VectorAudioVersion = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/*");
+	LoadSettings();
 
-	circlePrecision = 0;
 	this->rdGenerator = mt19937(this->randomDevice());
 	this->disUniform = uniform_real_distribution<>(0, 180);
 	this->disNormal = normal_distribution<>(0, 1);
 
-}
+	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
 
+}
 
 CRDFPlugin::~CRDFPlugin()
 {
@@ -54,9 +51,6 @@ CRDFPlugin::~CRDFPlugin()
 	}
 }
 
-/*
-	Process the message queue
-*/
 void CRDFPlugin::OnTimer(int counter)
 {
 	// check vector audio status
@@ -75,7 +69,7 @@ void CRDFPlugin::OnTimer(int counter)
 			useVectorAudio = false;
 		}
 	}
-	else if (!useVectorAudio && !(counter % 5)) { // refresh every 5 seconds
+	else if (!useVectorAudio && !(counter % retryInterval)) { // refresh every 5 seconds
 		VectorAudioVersion = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/*");
 	}
 
@@ -85,9 +79,7 @@ void CRDFPlugin::OnTimer(int counter)
 	if (VectorAudioTransmission.valid() && VectorAudioTransmission.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
 		try {
 			string res = VectorAudioTransmission.get();
-#ifdef _DEBUG
 			DisplayEuroScopeDebugMessage(string("VectorAudio message: ") + res);
-#endif // _DEBUG
 			if (!res.size()) {
 				this->messages.push(set<string>());
 			}
@@ -102,9 +94,7 @@ void CRDFPlugin::OnTimer(int counter)
 			}
 		}
 		catch (const std::exception& exc) {
-#ifdef _DEBUG
 			DisplayEuroScopeDebugMessage(exc.what());
-#endif // _DEBUG
 			if (useVectorAudio) {
 				DisplayEuroScopeMessage(string("Disconnected from vector audio: ") + exc.what());
 			}
@@ -136,7 +126,7 @@ void CRDFPlugin::OnTimer(int counter)
 				pos = AddRandomOffset(pos);
 				activeTransmittingPilots[callsign] = pos;
 			}
-			else {
+			else if (drawController) {
 				auto controller = ControllerSelect(callsign.c_str());
 				if (controller.IsValid()) {
 					CPosition pos = controller.GetPosition();
@@ -163,9 +153,7 @@ void CRDFPlugin::AddMessageToQueue(std::string message)
 {
 	std::lock_guard<std::mutex> lock(this->messageLock);
 	if (message.size()) {
-#ifdef _DEBUG
 		DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
-#endif // _DEBUG
 		set<string> strings;
 		istringstream f(message);
 		string s;
@@ -182,8 +170,8 @@ void CRDFPlugin::AddMessageToQueue(std::string message)
 string CRDFPlugin::GetVectorAudioInfo(string param)
 {
 	// need to use try-catch in every .get()
-	httplib::Client cli("http://10.211.55.2:49080");
-	cli.set_connection_timeout(0, 300000); // 300,000 usec = 300 millisecond
+	httplib::Client cli("http://" + addressVectorAudio);
+	cli.set_connection_timeout(0, connectionTimeout * 1000);
 	if (auto res = cli.Get(param)) {
 		if (res->status == 200) {
 			return res->body;
@@ -196,29 +184,107 @@ string CRDFPlugin::GetVectorAudioInfo(string param)
 	throw runtime_error("Not connected");
 }
 
-COLORREF CRDFPlugin::GetRGB(const char* settingValue)
+void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
 {
-	string circleRGB = settingValue;
+	unsigned int r, g, b;
+	sscanf_s(settingValue, "%u:%u:%u", &r, &g, &b);
+	if (r <= 255 && g <= 255 && b <= 255) {
+		DisplayEuroScopeDebugMessage(string("R: ") + to_string(r) + string(" G: ") + to_string(g) + string(" B: ") + to_string(b));
+		color = RGB(r, g, b);
+	}
+}
 
-	size_t firstColonIndex = circleRGB.find(':');
-	if (firstColonIndex != string::npos)
+void CRDFPlugin::LoadSettings(void)
+{
+	addressVectorAudio = "";
+	connectionTimeout = 300;
+	retryInterval = 5;
+
+	rdfRGB = RGB(255, 255, 255);	// Default: white
+	rdfConcurrentTransmissionRGB = RGB(255, 0, 0);	// Default: red
+	circleRadius = 20; // Default: 20 nautical miles
+	circlePrecision = 0; // Default: no offset (nautical miles)
+	drawController = false;
+
+	try
 	{
-		size_t secondColonIndex = circleRGB.find(':', firstColonIndex + 1);
-		if (secondColonIndex != string::npos)
+		const char* cstrAddrVA = GetDataFromSettings("VectorAudioAddress");
+		if (cstrAddrVA != NULL)
 		{
-			string redString = circleRGB.substr(0, firstColonIndex);
-			string greenString = circleRGB.substr(firstColonIndex + 1, secondColonIndex - firstColonIndex - 1);
-			string blueString = circleRGB.substr(secondColonIndex + 1, circleRGB.size() - secondColonIndex - 1);
-#ifdef _DEBUG
-			DisplayEuroScopeDebugMessage(string("R: ") + redString + string(" G: ") + greenString + string(" B: ") + blueString);
-#endif
+			useVectorAudio = false;
+			addressVectorAudio = cstrAddrVA;
+			VectorAudioVersion = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/*");
+			DisplayEuroScopeDebugMessage(string("Address: ") + addressVectorAudio);
+		}
 
-			if (!redString.empty() && !greenString.empty() && !blueString.empty())
-			{
-				return RGB(std::stoi(redString), std::stoi(greenString), std::stoi(blueString));
+		const char* cstrTimeout = GetDataFromSettings("VectorAudioTimeout");
+		if (cstrTimeout != NULL)
+		{
+			int parsedTimeout = atoi(cstrTimeout);
+			if (parsedTimeout > 0 && parsedTimeout < 1000) {
+				connectionTimeout = parsedTimeout;
+				DisplayEuroScopeDebugMessage(string("Timeout: ") + to_string(connectionTimeout));
 			}
 		}
+
+		const char* cstrInterval = GetDataFromSettings("VectorAudioRetryInterval");
+		if (cstrInterval != NULL)
+		{
+			int parsedInterval = atoi(cstrInterval);
+			if (parsedInterval > 0 && parsedInterval < 1000) {
+				retryInterval = parsedInterval;
+				DisplayEuroScopeDebugMessage(string("Interval: ") + to_string(retryInterval));
+			}
+		}
+
+		const char* cstrRGB = GetDataFromSettings("RGB");
+		if (cstrRGB != NULL)
+		{
+			GetRGB(rdfRGB, cstrRGB);
+		}
+
+		cstrRGB = GetDataFromSettings("ConcurrentTransmissionRGB");
+		if (cstrRGB != NULL)
+		{
+			GetRGB(rdfConcurrentTransmissionRGB, cstrRGB);
+		}
+
+		const char* cstrRadius = GetDataFromSettings("Radius");
+		if (cstrRadius != NULL)
+		{
+			int parsedRadius = atoi(cstrRadius);
+			if (parsedRadius > 0) {
+				circleRadius = parsedRadius;
+				DisplayEuroScopeDebugMessage(string("Radius: ") + to_string(circleRadius));
+			}
+		}
+
+		const char* cstrPrecision = GetDataFromSettings("Precision");
+		if (cstrPrecision != NULL)
+		{
+			int parsedPrecision = atoi(cstrPrecision);
+			if (parsedPrecision > 0) {
+				circlePrecision = parsedPrecision;
+				DisplayEuroScopeDebugMessage(string("Precision: ") + to_string(circlePrecision));
+			}
+		}
+
+		const char* cstrController = GetDataFromSettings("DrawControllers");
+		if (cstrController != NULL)
+		{
+			drawController = (bool)atoi(cstrController);
+			DisplayEuroScopeDebugMessage(string("Draw controllers and observers: ") + to_string(drawController));
+		}
 	}
+	catch (std::runtime_error const& e)
+	{
+		DisplayEuroScopeMessage(string("Error: ") + e.what());
+	}
+	catch (...)
+	{
+		DisplayEuroScopeMessage(string("Unexpected error: ") + to_string(GetLastError()));
+	}
+
 }
 
 CPosition CRDFPlugin::AddRandomOffset(CPosition pos)
@@ -234,14 +300,6 @@ CPosition CRDFPlugin::AddRandomOffset(CPosition pos)
 	posnew.m_Latitude = lat2 / pi * 180.0;
 	posnew.m_Longitude = lon2 / pi * 180.0;
 
-#ifdef _DEBUG
-	string lats1 = to_string(pos.m_Latitude);
-	string lons1 = to_string(pos.m_Longitude);
-	string lats2 = to_string(posnew.m_Latitude);
-	string lons2 = to_string(posnew.m_Longitude);
-	OutputDebugString((lons1 + "," + lats1 + "\t" + lons2 + "," + lats2 + "\n").c_str());
-#endif // _DEBUG
-
 	return posnew;
 }
 
@@ -253,45 +311,18 @@ CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 {
 	DisplayEuroScopeMessage(string("Radio Direction Finder plugin activated on ") + sDisplayName);
 
-	COLORREF rdfRGB = RGB(255, 255, 255);	// Default: white
-	COLORREF rdfConcurrentTransmissionRGB = RGB(255, 0, 0);	// Default: red
-	int circleRadius = 20;
+	return new CRDFScreen(this);
+}
 
-	try
-	{
-		const char* cstrRGB = GetDataFromSettings("RGB");
-		if (cstrRGB != NULL)
-		{
-			rdfRGB = GetRGB(cstrRGB);
-		}
-
-		cstrRGB = GetDataFromSettings("ConcurrentTransmissionRGB");
-		if (cstrRGB != NULL)
-		{
-			rdfConcurrentTransmissionRGB = GetRGB(cstrRGB);
-		}
-
-		const char* cstrRadius = GetDataFromSettings("Radius");
-		if (cstrRadius != NULL)
-		{
-			int parsedRadius = atoi(cstrRadius);
-			if (parsedRadius > 0) {
-				circleRadius = parsedRadius;
-
-#ifdef _DEBUG
-				DisplayEuroScopeDebugMessage(string("Radius: ") + to_string(circleRadius));
-#endif
-			}
-		}
+bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
+{
+	string cmd = sCommandLine;
+	for (auto& c : cmd) {
+		c += c >= 'a' && c <= 'z' ? 'A' - 'a' : 0; // make upper
 	}
-	catch (std::runtime_error const& e)
-	{
-		DisplayEuroScopeMessage(string("Error: ") + e.what());
+	if (cmd == ".RDF RELOAD") {
+		LoadSettings();
+		return true;
 	}
-	catch (...)
-	{
-		DisplayEuroScopeMessage(string("Unexpected error: ") + to_string(GetLastError()));
-	}
-
-	return new CRDFScreen(this, rdfRGB, rdfConcurrentTransmissionRGB, circleRadius);
+	return false;
 }

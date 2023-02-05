@@ -1,12 +1,9 @@
 #include "stdafx.h"
 #include "CRDFScreen.h"
 
-CRDFScreen::CRDFScreen(CRDFPlugin* plugin, COLORREF rdfColor, COLORREF rdfConcurrentTransmissionsColor, int circleRadius)
+CRDFScreen::CRDFScreen(CRDFPlugin* plugin)
 {
 	this->rdfPlugin = plugin;
-	this->rdfColor = rdfColor;
-	this->rdfConcurrentTransmissionsColor = rdfConcurrentTransmissionsColor;
-	this->circleRadius = circleRadius;
 }
 
 
@@ -31,7 +28,7 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 	}
 
 	HGDIOBJ oldBrush = SelectObject(hDC, GetStockObject(HOLLOW_BRUSH));
-	COLORREF penColor = drawPosition.size() > 1 ? rdfConcurrentTransmissionsColor : rdfColor;
+	COLORREF penColor = drawPosition.size() > 1 ? rdfPlugin->rdfConcurrentTransmissionRGB : rdfPlugin->rdfRGB;
 	HPEN hPen = CreatePen(PS_SOLID, 1, penColor);
 	HGDIOBJ oldPen = SelectObject(hDC, hPen);
 
@@ -44,7 +41,7 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 			POINT pLD = ConvertCoordFromPositionToPixel(posLD);
 			POINT pRU = ConvertCoordFromPositionToPixel(posRU);
 			double dst = sqrt(pow(pRU.x - pLD.x, 2) + pow(pRU.y - pLD.y, 2));
-			int drawR = round((double)circleRadius * dst / posLD.DistanceTo(posRU));
+			int drawR = round((double)rdfPlugin->circleRadius * dst / posLD.DistanceTo(posRU));
 			Ellipse(hDC, p.x - drawR, p.y - drawR, p.x + drawR, p.y + drawR);
 		}
 		else
