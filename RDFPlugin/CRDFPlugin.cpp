@@ -54,7 +54,7 @@ CRDFPlugin::~CRDFPlugin()
 
 void CRDFPlugin::OnTimer(int counter)
 {
-	// check vector audio status
+	// check VectorAudio status
 	if (VectorAudioVersion.valid() && VectorAudioVersion.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
 		try {
 			string res = VectorAudioVersion.get();
@@ -65,7 +65,7 @@ void CRDFPlugin::OnTimer(int counter)
 		}
 		catch (const std::exception& exc) {
 			if (useVectorAudio) {
-				DisplayEuroScopeMessage(string("Disconnected from vector audio: ") + exc.what());
+				DisplayEuroScopeMessage(string("Disconnected from VectorAudio: ") + exc.what());
 			}
 			useVectorAudio = false;
 		}
@@ -95,9 +95,8 @@ void CRDFPlugin::OnTimer(int counter)
 			}
 		}
 		catch (const std::exception& exc) {
-			DisplayEuroScopeDebugMessage(exc.what());
 			if (useVectorAudio) {
-				DisplayEuroScopeMessage(string("Disconnected from vector audio: ") + exc.what());
+				DisplayEuroScopeMessage(string("Disconnected from VectorAudio: ") + exc.what());
 			}
 			useVectorAudio = false;
 		}
@@ -150,7 +149,7 @@ void CRDFPlugin::OnTimer(int counter)
 	}
 }
 
-void CRDFPlugin::AddMessageToQueue(std::string message)
+void CRDFPlugin::ProcessAFVMessage(std::string message)
 {
 	std::lock_guard<std::mutex> lock(this->messageLock);
 	if (message.size()) {
@@ -197,13 +196,14 @@ void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
 
 void CRDFPlugin::LoadSettings(void)
 {
-	addressVectorAudio = "";
+	addressVectorAudio = "127.0.0.1:49080";
 	connectionTimeout = 300;
 	retryInterval = 5;
 
 	rdfRGB = RGB(255, 255, 255);	// Default: white
 	rdfConcurrentTransmissionRGB = RGB(255, 0, 0);	// Default: red
 	circleRadius = 20; // Default: 20 nautical miles
+	circleThreshold = -1; // Default: -1 (always use pixel)
 	circlePrecision = 0; // Default: no offset (nautical miles)
 	drawController = false;
 
@@ -258,6 +258,13 @@ void CRDFPlugin::LoadSettings(void)
 				circleRadius = parsedRadius;
 				DisplayEuroScopeDebugMessage(string("Radius: ") + to_string(circleRadius));
 			}
+		}
+
+		const char* cstrThreshold = GetDataFromSettings("Threshold");
+		if (cstrThreshold != NULL)
+		{
+			circleThreshold = atoi(cstrThreshold);
+			DisplayEuroScopeDebugMessage(string("Threshold: ") + to_string(circleThreshold));
 		}
 
 		const char* cstrPrecision = GetDataFromSettings("Precision");

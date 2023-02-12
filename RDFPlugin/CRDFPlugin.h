@@ -82,7 +82,7 @@ public:
 	CRDFPlugin();
 	virtual ~CRDFPlugin();
 	void OnTimer(int counter) override;
-	void AddMessageToQueue(string message);
+	void ProcessAFVMessage(string message);
 	virtual CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
 	virtual bool OnCompileCommand(const char* sCommandLine);
 
@@ -91,6 +91,7 @@ public:
 
 	COLORREF rdfRGB, rdfConcurrentTransmissionRGB;
 	int circleRadius;
+	int circleThreshold;
 
 };
 

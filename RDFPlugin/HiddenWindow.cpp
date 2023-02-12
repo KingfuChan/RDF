@@ -16,7 +16,7 @@ LRESULT CALLBACK HiddenWindow(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 		COPYDATASTRUCT* data = reinterpret_cast<COPYDATASTRUCT*>(lParam);
 
 		if (data != nullptr && data->dwData == 666 && data->lpData != nullptr && rdfPlugin != nullptr) {
-			rdfPlugin->AddMessageToQueue(reinterpret_cast<const char*>(data->lpData));
+			rdfPlugin->ProcessAFVMessage(reinterpret_cast<const char*>(data->lpData));
 		}
 		return TRUE;
 	}
