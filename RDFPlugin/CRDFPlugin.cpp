@@ -4,7 +4,7 @@
 
 using namespace std;
 
-const double pi = 3.141592653589793;
+const double pi = 3.141592653897932;
 const double EarthRadius = 6371.393 / 1.852; // nautical miles
 
 CRDFPlugin::CRDFPlugin()
@@ -298,15 +298,18 @@ void CRDFPlugin::LoadSettings(void)
 CPosition CRDFPlugin::AddRandomOffset(CPosition pos)
 {
 	double distance = disNormal(rdGenerator) * (double)circlePrecision / 2.0;
-	double angle = disUniform(rdGenerator);
-	double startLat = pos.m_Latitude / 180.0 * pi;
-	double startLong = pos.m_Longitude / 180.0 * pi;
-	double lat2 = asin(sin(startLat) * cos(distance / EarthRadius) + cos(startLat) * sin(distance / EarthRadius) * cos(angle));
-	double lon2 = startLong + atan2(sin(angle) * sin(distance / EarthRadius) * cos(startLat), cos(distance / EarthRadius) - sin(startLat) * sin(lat2));
-
+	double bearing = disUniform(rdGenerator);
 	CPosition posnew;
-	posnew.m_Latitude = lat2 / pi * 180.0;
-	posnew.m_Longitude = lon2 / pi * 180.0;
+
+	double rLat1 = pos.m_Latitude / 180.0 * pi;
+	double rLon1 = pos.m_Longitude / 180.0 * pi;
+	double rDistance = distance / EarthRadius;
+	double rBearing = bearing / 180.0 * pi;
+	double rLat2 = asin(sin(rLat1) * cos(rDistance) + cos(rLat1) * sin(rDistance) * cos(rBearing));
+	double rLon2 = abs(cos(rLat1)) < 0.000001 ? rLon1 : \
+		rLon1 + atan2(sin(rBearing) * sin(rDistance) * cos(rLat1), cos(rDistance) - sin(rLat1) * sin(rLat2));
+	posnew.m_Latitude = rLat2 / pi * 180.0;
+	posnew.m_Longitude = rLon2 / pi * 180.0;
 
 	return posnew;
 }
