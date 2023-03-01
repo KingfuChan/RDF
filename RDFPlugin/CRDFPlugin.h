@@ -18,8 +18,8 @@ using namespace std;
 using namespace EuroScopePlugIn;
 
 const string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-const string MY_PLUGIN_VERSION = "1.3.0";
-const string MY_PLUGIN_DEVELOPER = "Claus Hemberg Joergensen, Kingfu Chan";
+const string MY_PLUGIN_VERSION = "1.3.1";
+const string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
 const string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 
 typedef map<string, CPosition> callsign_position;

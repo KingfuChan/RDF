@@ -222,7 +222,7 @@ void CRDFPlugin::LoadSettings(void)
 		if (cstrTimeout != NULL)
 		{
 			int parsedTimeout = atoi(cstrTimeout);
-			if (parsedTimeout > 0 && parsedTimeout < 1000) {
+			if (parsedTimeout > 100 && parsedTimeout < 1000) {
 				connectionTimeout = parsedTimeout;
 				DisplayEuroScopeDebugMessage(string("Timeout: ") + to_string(connectionTimeout));
 			}
@@ -232,7 +232,7 @@ void CRDFPlugin::LoadSettings(void)
 		if (cstrInterval != NULL)
 		{
 			int parsedInterval = atoi(cstrInterval);
-			if (parsedInterval > 0 && parsedInterval < 1000) {
+			if (parsedInterval > 1) {
 				retryInterval = parsedInterval;
 				DisplayEuroScopeDebugMessage(string("Interval: ") + to_string(retryInterval));
 			}
@@ -331,9 +331,83 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 	for (auto& c : cmd) {
 		c += c >= 'a' && c <= 'z' ? 'A' - 'a' : 0; // make upper
 	}
-	if (cmd == ".RDF RELOAD") {
-		LoadSettings();
-		return true;
+	try
+	{
+
+		if (cmd == ".RDF RELOAD") {
+			LoadSettings();
+			return true;
+		}
+
+		char bufferAddr[128] = { 0 };
+		if (sscanf_s(cmd.c_str(), ".RDF ADDRESS %s", bufferAddr, sizeof(bufferAddr))) {
+			addressVectorAudio = string(bufferAddr);
+			DisplayEuroScopeDebugMessage(string("Address: ") + addressVectorAudio);
+			return true;
+		}
+
+		int bufferTimeout;
+		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout)) {
+			if (bufferTimeout > 100 && bufferTimeout < 1000) {
+				connectionTimeout = bufferTimeout;
+				DisplayEuroScopeDebugMessage(string("Timeout: ") + to_string(connectionTimeout));
+				return true;
+			}
+		}
+
+		int bufferInterval;
+		if (sscanf_s(cmd.c_str(), ".RDF INTERVAL %d", &bufferInterval)) {
+			if (bufferInterval > 1) {
+				retryInterval = bufferInterval;
+				DisplayEuroScopeDebugMessage(string("Interval: ") + to_string(retryInterval));
+				return true;
+			}
+		}
+
+		char bufferRGB[15] = { 0 };
+		if (sscanf_s(cmd.c_str(), ".RDF RGB %s", bufferRGB, sizeof(bufferRGB))) {
+			GetRGB(rdfRGB, bufferRGB);
+			return true;
+		}
+		else if (sscanf_s(cmd.c_str(), ".RDF CTRGB %s", bufferRGB, sizeof(bufferRGB))) {
+			GetRGB(rdfConcurrentTransmissionRGB, bufferRGB);
+			return true;
+		}
+
+		int bufferRadius;
+		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius)) {
+			if (bufferRadius > 0) {
+				circleRadius = bufferRadius;
+				DisplayEuroScopeDebugMessage(string("Radius: ") + to_string(circleRadius));
+				return true;
+			}
+		}
+
+		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &circleThreshold)) {
+			DisplayEuroScopeDebugMessage(string("Threshold: ") + to_string(circleThreshold));
+			return true;
+		}
+
+		int bufferPrecision;
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision)) {
+			if (bufferPrecision > 0) {
+				circlePrecision = bufferPrecision;
+				DisplayEuroScopeDebugMessage(string("Precision: ") + to_string(circlePrecision));
+				return true;
+			}
+		}
+
+		int bufferCtrl;
+		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl)) {
+			DisplayEuroScopeDebugMessage(string("Draw controllers and observers: ") + to_string(drawController));
+			drawController = bufferCtrl;
+			return true;
+		}
+
+	}
+	catch (const std::exception& e)
+	{
+		DisplayEuroScopeDebugMessage(e.what());
 	}
 	return false;
 }
