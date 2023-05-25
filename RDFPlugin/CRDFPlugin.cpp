@@ -4,6 +4,8 @@
 
 using namespace std;
 
+#define VECTORAUDIO_PARAM_VERSION	"/*"
+#define VECTORAUDIO_PARAM_TRANSMIT	"/transmitting"
 const double pi = 3.141592653897932;
 const double EarthRadius = 6371.393 / 1.852; // nautical miles
 
@@ -38,120 +40,32 @@ CRDFPlugin::CRDFPlugin()
 
 	this->rdGenerator = mt19937(this->randomDevice());
 	this->disUniform = uniform_real_distribution<>(0, 180);
-	this->disNormal = normal_distribution<>(0, 1);
+	this->disNormal = normal_distribution<>(0.0, 1.0);
 
 	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
+
+	// detach thread for VectorAudio
+	VectorAudioTransmission = new thread([&] {return GetVectorAudioTransmissionLoop(); });
+	VectorAudioTransmission->detach();
 
 }
 
 CRDFPlugin::~CRDFPlugin()
 {
+	// close detached thread
+	threadRunning = false;
+	while (!threadClosed) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
+	}
+
 	if (this->hiddenWindow != NULL) {
 		DestroyWindow(this->hiddenWindow);
 	}
 	UnregisterClass("RDFHiddenWindowClass", NULL);
 }
 
-void CRDFPlugin::OnTimer(int counter)
-{
-	// check VectorAudio status
-	if (VectorAudioVersion.valid() && VectorAudioVersion.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-		try {
-			string res = VectorAudioVersion.get();
-			if (!useVectorAudio && res.size()) {
-				DisplayEuroScopeMessage(string("Connected to ") + res);
-				useVectorAudio = true;
-			}
-		}
-		catch (const std::exception& exc) {
-			if (useVectorAudio) {
-				DisplayEuroScopeMessage(string("Disconnected from VectorAudio: ") + exc.what());
-			}
-			useVectorAudio = false;
-		}
-	}
-	else if (!useVectorAudio && !(counter % retryInterval)) { // refresh every 5 seconds
-		VectorAudioVersion = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/*");
-	}
-
-	std::lock_guard<std::mutex> lock(this->messageLock);
-
-	// Process VectorAudio message
-	if (VectorAudioTransmission.valid() && VectorAudioTransmission.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-		try {
-			string res = VectorAudioTransmission.get();
-			DisplayEuroScopeDebugMessage(string("VectorAudio message: ") + res);
-			if (!res.size()) {
-				this->messages.push(set<string>());
-			}
-			else {
-				set<string> strings;
-				istringstream f(res);
-				string s;
-				while (getline(f, s, ',')) {
-					strings.insert(s);
-				}
-				this->messages.push(strings);
-			}
-		}
-		catch (const std::exception& exc) {
-			if (useVectorAudio) {
-				DisplayEuroScopeMessage(string("Disconnected from VectorAudio: ") + exc.what());
-			}
-			useVectorAudio = false;
-		}
-	}
-
-	// Process all incoming messages
-	while (this->messages.size() > 0) {
-		set<string> amessage = this->messages.front();
-		this->messages.pop();
-
-		// remove existing records
-		for (auto itr = activeTransmittingPilots.begin(); itr != activeTransmittingPilots.end();) {
-			if (amessage.erase(itr->first)) { // remove still transmitting from message
-				itr++;
-			}
-			else {
-				// no removal, means stopped transmission, need to also remove from map
-				activeTransmittingPilots.erase(itr++);
-			}
-		}
-
-		// add new active transmitting records
-		for (const auto& callsign : amessage) {
-			auto radarTarget = RadarTargetSelect(callsign.c_str());
-			if (radarTarget.IsValid()) {
-				CPosition pos = radarTarget.GetPosition().GetPosition();
-				pos = AddRandomOffset(pos);
-				activeTransmittingPilots[callsign] = pos;
-			}
-			else if (drawController) {
-				auto controller = ControllerSelect(callsign.c_str());
-				if (controller.IsValid()) {
-					CPosition pos = controller.GetPosition();
-					if (!controller.IsController()) { // for shared cockpit
-						pos = AddRandomOffset(pos);
-					}
-					activeTransmittingPilots[callsign] = pos;
-				}
-			}
-		}
-
-		if (!activeTransmittingPilots.empty()) {
-			previousActiveTransmittingPilots = activeTransmittingPilots;
-		}
-	}
-
-	// GET VectorAudio
-	if (useVectorAudio) {
-		VectorAudioTransmission = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/transmitting");
-	}
-}
-
 void CRDFPlugin::ProcessAFVMessage(std::string message)
 {
-	std::lock_guard<std::mutex> lock(this->messageLock);
 	if (message.size()) {
 		DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
 		set<string> strings;
@@ -160,28 +74,14 @@ void CRDFPlugin::ProcessAFVMessage(std::string message)
 		while (getline(f, s, ':')) {
 			strings.insert(s);
 		}
+		std::lock_guard<std::mutex> lock(this->messageLock);
 		this->messages.push(strings);
 	}
 	else {
+		std::lock_guard<std::mutex> lock(this->messageLock);
 		this->messages.push(set<string>());
 	}
-}
-
-string CRDFPlugin::GetVectorAudioInfo(string param)
-{
-	// need to use try-catch in every .get()
-	httplib::Client cli("http://" + addressVectorAudio);
-	cli.set_connection_timeout(0, connectionTimeout * 1000);
-	if (auto res = cli.Get(param)) {
-		if (res->status == 200) {
-			return res->body;
-		}
-		else {
-			auto err = res.error();
-			throw runtime_error("HTTP error: " + httplib::to_string(err));
-		}
-	}
-	throw runtime_error("Not connected");
+	ProcessMessageQueue(); // C26115
 }
 
 void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
@@ -198,6 +98,7 @@ void CRDFPlugin::LoadSettings(void)
 {
 	addressVectorAudio = "127.0.0.1:49080";
 	connectionTimeout = 300;
+	pollInterval = 200;
 	retryInterval = 5;
 
 	rdfRGB = RGB(255, 255, 255);	// Default: white
@@ -212,9 +113,7 @@ void CRDFPlugin::LoadSettings(void)
 		const char* cstrAddrVA = GetDataFromSettings("VectorAudioAddress");
 		if (cstrAddrVA != NULL)
 		{
-			useVectorAudio = false;
 			addressVectorAudio = cstrAddrVA;
-			VectorAudioVersion = async(std::launch::async, &CRDFPlugin::GetVectorAudioInfo, this, "/*");
 			DisplayEuroScopeDebugMessage(string("Address: ") + addressVectorAudio);
 		}
 
@@ -222,19 +121,29 @@ void CRDFPlugin::LoadSettings(void)
 		if (cstrTimeout != NULL)
 		{
 			int parsedTimeout = atoi(cstrTimeout);
-			if (parsedTimeout > 100 && parsedTimeout < 1000) {
+			if (parsedTimeout >= 100 && parsedTimeout <= 1000) {
 				connectionTimeout = parsedTimeout;
 				DisplayEuroScopeDebugMessage(string("Timeout: ") + to_string(connectionTimeout));
 			}
 		}
 
-		const char* cstrInterval = GetDataFromSettings("VectorAudioRetryInterval");
-		if (cstrInterval != NULL)
+		const char* cstrPollInterval = GetDataFromSettings("VectorAudioPollInterval");
+		if (cstrPollInterval != NULL)
 		{
-			int parsedInterval = atoi(cstrInterval);
-			if (parsedInterval > 1) {
+			int parsedInterval = atoi(cstrPollInterval);
+			if (parsedInterval >= 100) {
+				pollInterval = parsedInterval;
+				DisplayEuroScopeDebugMessage(string("Poll interval: ") + to_string(pollInterval));
+			}
+		}
+
+		const char* cstrRetryInterval = GetDataFromSettings("VectorAudioRetryInterval");
+		if (cstrRetryInterval != NULL)
+		{
+			int parsedInterval = atoi(cstrRetryInterval);
+			if (parsedInterval >= 1) {
 				retryInterval = parsedInterval;
-				DisplayEuroScopeDebugMessage(string("Interval: ") + to_string(retryInterval));
+				DisplayEuroScopeDebugMessage(string("Retry interval: ") + to_string(retryInterval));
 			}
 		}
 
@@ -295,6 +204,51 @@ void CRDFPlugin::LoadSettings(void)
 
 }
 
+void CRDFPlugin::ProcessMessageQueue(void)
+{
+	std::lock_guard<std::mutex> lock(this->messageLock);
+	// Process all incoming messages
+	while (this->messages.size() > 0) {
+		set<string> amessage = this->messages.front();
+		this->messages.pop();
+
+		// remove existing records
+		for (auto itr = activeTransmittingPilots.begin(); itr != activeTransmittingPilots.end();) {
+			if (amessage.erase(itr->first)) { // remove still transmitting from message
+				itr++;
+			}
+			else {
+				// no removal, means stopped transmission, need to also remove from map
+				activeTransmittingPilots.erase(itr++);
+			}
+		}
+
+		// add new active transmitting records
+		for (const auto& callsign : amessage) {
+			auto radarTarget = RadarTargetSelect(callsign.c_str());
+			if (radarTarget.IsValid()) {
+				CPosition pos = radarTarget.GetPosition().GetPosition();
+				pos = AddRandomOffset(pos);
+				activeTransmittingPilots[callsign] = pos;
+			}
+			else if (drawController) {
+				auto controller = ControllerSelect(callsign.c_str());
+				if (controller.IsValid()) {
+					CPosition pos = controller.GetPosition();
+					if (!controller.IsController()) { // for shared cockpit
+						pos = AddRandomOffset(pos);
+					}
+					activeTransmittingPilots[callsign] = pos;
+				}
+			}
+		}
+
+		if (!activeTransmittingPilots.empty()) {
+			previousActiveTransmittingPilots = activeTransmittingPilots;
+		}
+	}
+}
+
 CPosition CRDFPlugin::AddRandomOffset(CPosition pos)
 {
 	double distance = disNormal(rdGenerator) * (double)circlePrecision / 2.0;
@@ -312,6 +266,54 @@ CPosition CRDFPlugin::AddRandomOffset(CPosition pos)
 	posnew.m_Longitude = rLon2 / pi * 180.0;
 
 	return posnew;
+}
+
+void CRDFPlugin::GetVectorAudioTransmissionLoop(void)
+{
+	threadRunning = true;
+	threadClosed = false;
+	bool getTransmit = false;
+	while (threadRunning) {
+		httplib::Client cli("http://" + addressVectorAudio);
+		cli.set_connection_timeout(0, connectionTimeout * 1000);
+		if (auto res = cli.Get(getTransmit ? VECTORAUDIO_PARAM_TRANSMIT : VECTORAUDIO_PARAM_VERSION)) {
+			if (res->status == 200) {
+				DisplayEuroScopeDebugMessage(string("VectorAudio message: ") + res->body);
+				if (!getTransmit) {
+					DisplayEuroScopeMessage("Connected to " + res->body);
+					getTransmit = true;
+					continue;
+				}
+				if (!res->body.size()) {
+					std::lock_guard<std::mutex> lock(this->messageLock); // C26111
+					this->messages.push(set<string>());
+				}
+				else {
+					set<string> strings;
+					istringstream f(res->body);
+					string s;
+					while (getline(f, s, ',')) {
+						strings.insert(s);
+					}
+					std::lock_guard<std::mutex> lock(this->messageLock); // C26111
+					this->messages.push(strings);
+				}
+				ProcessMessageQueue();
+				this_thread::sleep_for(chrono::milliseconds(pollInterval));
+				continue;
+			}
+			DisplayEuroScopeDebugMessage("HTTP error: " + httplib::to_string(res.error()));
+		}
+		else {
+			DisplayEuroScopeDebugMessage("Not connected");
+		}
+		if (getTransmit) {
+			DisplayEuroScopeMessage("VectorAudio disconnected");
+		}
+		getTransmit = false;
+		this_thread::sleep_for(chrono::seconds(retryInterval));
+	}
+	threadClosed = true; // C26115
 }
 
 CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
@@ -348,18 +350,27 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 
 		int bufferTimeout;
 		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout)) {
-			if (bufferTimeout > 100 && bufferTimeout < 1000) {
+			if (bufferTimeout >= 100 && bufferTimeout <= 1000) {
 				connectionTimeout = bufferTimeout;
 				DisplayEuroScopeDebugMessage(string("Timeout: ") + to_string(connectionTimeout));
 				return true;
 			}
 		}
 
-		int bufferInterval;
-		if (sscanf_s(cmd.c_str(), ".RDF INTERVAL %d", &bufferInterval)) {
-			if (bufferInterval > 1) {
-				retryInterval = bufferInterval;
-				DisplayEuroScopeDebugMessage(string("Interval: ") + to_string(retryInterval));
+		int bufferPollInterval;
+		if (sscanf_s(cmd.c_str(), ".RDF POLL %d", &bufferPollInterval)) {
+			if (bufferPollInterval >= 100) {
+				pollInterval = bufferPollInterval;
+				DisplayEuroScopeDebugMessage(string("Poll interval: ") + to_string(bufferPollInterval));
+				return true;
+			}
+		}
+
+		int bufferRetryInterval;
+		if (sscanf_s(cmd.c_str(), ".RDF RETRY %d", &bufferRetryInterval)) {
+			if (bufferRetryInterval >= 1) {
+				retryInterval = bufferRetryInterval;
+				DisplayEuroScopeDebugMessage(string("Retry interval: ") + to_string(retryInterval));
 				return true;
 			}
 		}

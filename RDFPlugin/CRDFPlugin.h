@@ -12,13 +12,15 @@
 #include <sstream>
 #include <iostream>
 #include <future>
+#include <thread>
+#include <atomic>
 #include "HiddenWindow.h"
 
 using namespace std;
 using namespace EuroScopePlugIn;
 
 const string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-const string MY_PLUGIN_VERSION = "1.3.1";
+const string MY_PLUGIN_VERSION = "1.3.2";
 const string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
 const string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 
@@ -36,16 +38,15 @@ private:
 	CPosition AddRandomOffset(CPosition pos);
 
 	string addressVectorAudio;
-	future<string> VectorAudioVersion;
-	future<string> VectorAudioTransmission;
-	bool useVectorAudio;
-	int connectionTimeout, retryInterval;
-	string GetVectorAudioInfo(string param);
+	thread* VectorAudioTransmission;
+	int connectionTimeout, pollInterval, retryInterval;
+	atomic_bool threadRunning; // for thread closing
+	atomic_bool threadClosed;
+	void GetVectorAudioTransmissionLoop(void);
 
 	HWND hiddenWindow = NULL;
 
-	// Lock for the message queue
-	mutex messageLock;
+	mutex messageLock; // Lock for the message queue
 	// Internal message quque
 	queue<set<string>> messages;
 
@@ -67,6 +68,7 @@ private:
 
 	void GetRGB(COLORREF& color, const char* settingValue);
 	void LoadSettings(void);
+	void ProcessMessageQueue(void);
 
 	inline void DisplayEuroScopeDebugMessage(string msg) {
 #ifdef _DEBUG
@@ -81,7 +83,6 @@ private:
 public:
 	CRDFPlugin();
 	virtual ~CRDFPlugin();
-	void OnTimer(int counter) override;
 	void ProcessAFVMessage(string message);
 	virtual CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
 	virtual bool OnCompileCommand(const char* sCommandLine);
