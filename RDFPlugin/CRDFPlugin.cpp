@@ -6,7 +6,7 @@ using namespace std;
 
 #define VECTORAUDIO_PARAM_VERSION	"/*"
 #define VECTORAUDIO_PARAM_TRANSMIT	"/transmitting"
-const double pi = 3.141592653897932;
+const double pi = 3.141592653589793;
 const double EarthRadius = 6371.393 / 1.852; // nautical miles
 
 CRDFPlugin::CRDFPlugin()
@@ -45,7 +45,7 @@ CRDFPlugin::CRDFPlugin()
 	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
 
 	// detach thread for VectorAudio
-	VectorAudioTransmission = new thread([&] {return GetVectorAudioTransmissionLoop(); });
+	VectorAudioTransmission = new thread(&CRDFPlugin::VectorAudioHTTPLoop, this);
 	VectorAudioTransmission->detach();
 
 }
@@ -54,9 +54,7 @@ CRDFPlugin::~CRDFPlugin()
 {
 	// close detached thread
 	threadRunning = false;
-	while (!threadClosed) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
-	}
+	threadClosed.wait(false);
 
 	if (this->hiddenWindow != NULL) {
 		DestroyWindow(this->hiddenWindow);
@@ -66,22 +64,23 @@ CRDFPlugin::~CRDFPlugin()
 
 void CRDFPlugin::ProcessAFVMessage(std::string message)
 {
-	if (message.size()) {
-		DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
-		set<string> strings;
-		istringstream f(message);
-		string s;
-		while (getline(f, s, ':')) {
-			strings.insert(s);
+	{
+		std::lock_guard<std::mutex> lock(this->messageLock);
+		if (message.size()) {
+			DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
+			set<string> strings;
+			istringstream f(message);
+			string s;
+			while (getline(f, s, ':')) {
+				strings.insert(s);
+			}
+			this->messages.push(strings);
 		}
-		std::lock_guard<std::mutex> lock(this->messageLock);
-		this->messages.push(strings);
+		else {
+			this->messages.push(set<string>());
+		}
 	}
-	else {
-		std::lock_guard<std::mutex> lock(this->messageLock);
-		this->messages.push(set<string>());
-	}
-	ProcessMessageQueue(); // C26115
+	ProcessMessageQueue();
 }
 
 void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
@@ -268,12 +267,25 @@ CPosition CRDFPlugin::AddRandomOffset(CPosition pos)
 	return posnew;
 }
 
-void CRDFPlugin::GetVectorAudioTransmissionLoop(void)
+void CRDFPlugin::VectorAudioHTTPLoop(void)
 {
 	threadRunning = true;
 	threadClosed = false;
 	bool getTransmit = false;
-	while (threadRunning) {
+	while (true) {
+		for (int sleepRemain = getTransmit ? pollInterval : retryInterval * 1000; sleepRemain > 0;) {
+			if (threadRunning) {
+				int sleepThis = min(sleepRemain, pollInterval);
+				this_thread::sleep_for(chrono::milliseconds(sleepThis));
+				sleepRemain -= sleepThis;
+			}
+			else {
+				threadClosed = true;
+				threadClosed.notify_all();
+				return;
+			}
+		}
+
 		httplib::Client cli("http://" + addressVectorAudio);
 		cli.set_connection_timeout(0, connectionTimeout * 1000);
 		if (auto res = cli.Get(getTransmit ? VECTORAUDIO_PARAM_TRANSMIT : VECTORAUDIO_PARAM_VERSION)) {
@@ -284,22 +296,22 @@ void CRDFPlugin::GetVectorAudioTransmissionLoop(void)
 					getTransmit = true;
 					continue;
 				}
-				if (!res->body.size()) {
-					std::lock_guard<std::mutex> lock(this->messageLock); // C26111
-					this->messages.push(set<string>());
-				}
-				else {
-					set<string> strings;
-					istringstream f(res->body);
-					string s;
-					while (getline(f, s, ',')) {
-						strings.insert(s);
+				{
+					std::lock_guard<std::mutex> lock(this->messageLock);
+					if (!res->body.size()) {
+						this->messages.push(set<string>());
 					}
-					std::lock_guard<std::mutex> lock(this->messageLock); // C26111
-					this->messages.push(strings);
+					else {
+						set<string> strings;
+						istringstream f(res->body);
+						string s;
+						while (getline(f, s, ',')) {
+							strings.insert(s);
+						}
+						this->messages.push(strings);
+					}
 				}
 				ProcessMessageQueue();
-				this_thread::sleep_for(chrono::milliseconds(pollInterval));
 				continue;
 			}
 			DisplayEuroScopeDebugMessage("HTTP error: " + httplib::to_string(res.error()));
@@ -311,9 +323,7 @@ void CRDFPlugin::GetVectorAudioTransmissionLoop(void)
 			DisplayEuroScopeMessage("VectorAudio disconnected");
 		}
 		getTransmit = false;
-		this_thread::sleep_for(chrono::seconds(retryInterval));
 	}
-	threadClosed = true; // C26115
 }
 
 CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,

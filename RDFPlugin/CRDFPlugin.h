@@ -40,9 +40,8 @@ private:
 	string addressVectorAudio;
 	thread* VectorAudioTransmission;
 	int connectionTimeout, pollInterval, retryInterval;
-	atomic_bool threadRunning; // for thread closing
-	atomic_bool threadClosed;
-	void GetVectorAudioTransmissionLoop(void);
+	atomic_bool threadRunning, threadClosed; // for thread control
+	void VectorAudioHTTPLoop(void);
 
 	HWND hiddenWindow = NULL;
 
