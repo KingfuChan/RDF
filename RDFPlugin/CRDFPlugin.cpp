@@ -6,6 +6,22 @@ using namespace std;
 
 #define VECTORAUDIO_PARAM_VERSION	"/*"
 #define VECTORAUDIO_PARAM_TRANSMIT	"/transmitting"
+
+#define SETTING_VECTORAUDIO_ADDRESS "VectorAudioAddress"
+#define SETTING_VECTORAUDIO_TIMEOUT "VectorAudioTimeout"
+#define SETTING_VECTORAUDIO_POLL_INTERVAL "VectorAudioPollInterval"
+#define SETTING_VECTORAUDIO_RETRY_INTERVAL "VectorAudioRetryInterval"
+#define SETTING_RGB "RGB"
+#define SETTING_CONCURRENT_RGB "ConcurrentTransmissionRGB"
+#define SETTING_CIRCLE_RADIUS "Radius"
+#define SETTING_THRESHOLD "Threshold"
+#define SETTING_PRECISION "Precision"
+#define SETTING_LOW_ALTITUDE "LowAltitude"
+#define SETTING_HIGH_ALTITUDE "HighAltitude"
+#define SETTING_LOW_PRECISION "LowPrecision"
+#define SETTING_HIGH_PRECISION "HighPrecision"
+#define SETTING_DRAW_CONTROLLERS "DrawControllers"
+
 const double pi = 3.141592653589793;
 const double EarthRadius = 6371.393 / 1.852; // nautical miles
 
@@ -39,8 +55,8 @@ CRDFPlugin::CRDFPlugin()
 	LoadSettings();
 
 	this->rdGenerator = mt19937(this->randomDevice());
-	this->disUniform = uniform_real_distribution<>(0, 180);
-	this->disNormal = normal_distribution<>(0.0, 1.0);
+	this->disBearing = uniform_real_distribution<>(0.0, 360.0);
+	this->disDistance = uniform_real_distribution<>(0, 1.0);
 
 	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
 
@@ -96,27 +112,37 @@ void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
 void CRDFPlugin::LoadSettings(void)
 {
 	addressVectorAudio = "127.0.0.1:49080";
-	connectionTimeout = 300;
-	pollInterval = 200;
-	retryInterval = 5;
+	connectionTimeout = 300; // milliseconds, range: [100, 1000]
+	pollInterval = 200; // milliseconds, range: [100, +inf)
+	retryInterval = 5; // seconds, range: [1, +inf)
 
 	rdfRGB = RGB(255, 255, 255);	// Default: white
 	rdfConcurrentTransmissionRGB = RGB(255, 0, 0);	// Default: red
-	circleRadius = 20; // Default: 20 nautical miles
+
+	circleRadius = 20; // Default: 20 (nautical miles or pixel), range: (0, +inf)
 	circleThreshold = -1; // Default: -1 (always use pixel)
-	circlePrecision = 0; // Default: no offset (nautical miles)
+	circlePrecision = 0; // Default: no offset (nautical miles), range: [0, +inf)
+	lowAltitude = 0; // Default: 0 (feet)
+	lowPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
+	highAltitude = 0; // Default: 0 (feet)
+	highPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
+	// Schematic: high altitude/precision optional. low altitude used for filtering regardless of others
+	// threshold < 0 will use circleRadius in pixel, circlePrecision for offset, low/high settings ignored
+	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
+	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
+
 	drawController = false;
 
 	try
 	{
-		const char* cstrAddrVA = GetDataFromSettings("VectorAudioAddress");
+		const char* cstrAddrVA = GetDataFromSettings(SETTING_VECTORAUDIO_ADDRESS);
 		if (cstrAddrVA != NULL)
 		{
 			addressVectorAudio = cstrAddrVA;
 			DisplayEuroScopeDebugMessage(string("Address: ") + addressVectorAudio);
 		}
 
-		const char* cstrTimeout = GetDataFromSettings("VectorAudioTimeout");
+		const char* cstrTimeout = GetDataFromSettings(SETTING_VECTORAUDIO_TIMEOUT);
 		if (cstrTimeout != NULL)
 		{
 			int parsedTimeout = atoi(cstrTimeout);
@@ -126,7 +152,7 @@ void CRDFPlugin::LoadSettings(void)
 			}
 		}
 
-		const char* cstrPollInterval = GetDataFromSettings("VectorAudioPollInterval");
+		const char* cstrPollInterval = GetDataFromSettings(SETTING_VECTORAUDIO_POLL_INTERVAL);
 		if (cstrPollInterval != NULL)
 		{
 			int parsedInterval = atoi(cstrPollInterval);
@@ -136,7 +162,7 @@ void CRDFPlugin::LoadSettings(void)
 			}
 		}
 
-		const char* cstrRetryInterval = GetDataFromSettings("VectorAudioRetryInterval");
+		const char* cstrRetryInterval = GetDataFromSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL);
 		if (cstrRetryInterval != NULL)
 		{
 			int parsedInterval = atoi(cstrRetryInterval);
@@ -146,19 +172,19 @@ void CRDFPlugin::LoadSettings(void)
 			}
 		}
 
-		const char* cstrRGB = GetDataFromSettings("RGB");
+		const char* cstrRGB = GetDataFromSettings(SETTING_RGB);
 		if (cstrRGB != NULL)
 		{
 			GetRGB(rdfRGB, cstrRGB);
 		}
 
-		cstrRGB = GetDataFromSettings("ConcurrentTransmissionRGB");
+		cstrRGB = GetDataFromSettings(SETTING_CONCURRENT_RGB);
 		if (cstrRGB != NULL)
 		{
 			GetRGB(rdfConcurrentTransmissionRGB, cstrRGB);
 		}
 
-		const char* cstrRadius = GetDataFromSettings("Radius");
+		const char* cstrRadius = GetDataFromSettings(SETTING_CIRCLE_RADIUS);
 		if (cstrRadius != NULL)
 		{
 			int parsedRadius = atoi(cstrRadius);
@@ -168,24 +194,62 @@ void CRDFPlugin::LoadSettings(void)
 			}
 		}
 
-		const char* cstrThreshold = GetDataFromSettings("Threshold");
+		const char* cstrThreshold = GetDataFromSettings(SETTING_THRESHOLD);
 		if (cstrThreshold != NULL)
 		{
 			circleThreshold = atoi(cstrThreshold);
 			DisplayEuroScopeDebugMessage(string("Threshold: ") + to_string(circleThreshold));
 		}
 
-		const char* cstrPrecision = GetDataFromSettings("Precision");
+		const char* cstrPrecision = GetDataFromSettings(SETTING_PRECISION);
 		if (cstrPrecision != NULL)
 		{
 			int parsedPrecision = atoi(cstrPrecision);
-			if (parsedPrecision > 0) {
+			if (parsedPrecision >= 0) {
 				circlePrecision = parsedPrecision;
 				DisplayEuroScopeDebugMessage(string("Precision: ") + to_string(circlePrecision));
 			}
 		}
 
-		const char* cstrController = GetDataFromSettings("DrawControllers");
+		const char* cstrLowAlt = GetDataFromSettings(SETTING_LOW_ALTITUDE);
+		if (cstrLowAlt != NULL)
+		{
+			int parsedAlt = atoi(cstrLowAlt);
+			lowAltitude = parsedAlt;
+			DisplayEuroScopeDebugMessage(string("Low Altitude: ") + to_string(lowAltitude));
+		}
+
+		const char* cstrHighAlt = GetDataFromSettings(SETTING_HIGH_ALTITUDE);
+		if (cstrHighAlt != NULL)
+		{
+			int parsedAlt = atoi(cstrHighAlt);
+			if (parsedAlt > 0) {
+				highAltitude = parsedAlt;
+				DisplayEuroScopeDebugMessage(string("High Altitude: ") + to_string(highAltitude));
+			}
+		}
+
+		const char* cstrLowPrecision = GetDataFromSettings(SETTING_LOW_PRECISION);
+		if (cstrLowPrecision != NULL)
+		{
+			int parsedPrecision = atoi(cstrLowPrecision);
+			if (parsedPrecision >= 0) {
+				lowPrecision = parsedPrecision;
+				DisplayEuroScopeDebugMessage(string("Low Precision: ") + to_string(lowPrecision));
+			}
+		}
+
+		const char* cstrHighPrecision = GetDataFromSettings(SETTING_HIGH_PRECISION);
+		if (cstrHighPrecision != NULL)
+		{
+			int parsedPrecision = atoi(cstrHighPrecision);
+			if (parsedPrecision >= 0) {
+				highPrecision = parsedPrecision;
+				DisplayEuroScopeDebugMessage(string("High Precision: ") + to_string(highPrecision));
+			}
+		}
+
+		const char* cstrController = GetDataFromSettings(SETTING_DRAW_CONTROLLERS);
 		if (cstrController != NULL)
 		{
 			drawController = (bool)atoi(cstrController);
@@ -225,20 +289,48 @@ void CRDFPlugin::ProcessMessageQueue(void)
 		// add new active transmitting records
 		for (const auto& callsign : amessage) {
 			auto radarTarget = RadarTargetSelect(callsign.c_str());
+			auto controller = ControllerSelect(callsign.c_str());
+			if (!radarTarget.IsValid() && controller.IsValid() && callsign.back() >= 'A' && callsign.back() <= 'Z') {
+				// dump last character and find callsign again
+				string callsign_dump = callsign.substr(0, callsign.size() - 1);
+				radarTarget = RadarTargetSelect(callsign_dump.c_str());
+			}
 			if (radarTarget.IsValid()) {
 				CPosition pos = radarTarget.GetPosition().GetPosition();
-				pos = AddRandomOffset(pos);
-				activeTransmittingPilots[callsign] = pos;
-			}
-			else if (drawController) {
-				auto controller = ControllerSelect(callsign.c_str());
-				if (controller.IsValid()) {
-					CPosition pos = controller.GetPosition();
-					if (!controller.IsController()) { // for shared cockpit
-						pos = AddRandomOffset(pos);
+				int alt = radarTarget.GetPosition().GetPressureAltitude();
+				if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
+					CPosition posnew = pos;
+					double radius = circleRadius;
+					// determines offset
+					double offset = circlePrecision;
+					if (circleThreshold >= 0 && lowPrecision > 0) {
+						if (highPrecision > 0 && highAltitude > lowAltitude) {
+							offset = (double)lowPrecision + (double)(alt - lowAltitude) * (double)(highPrecision - lowPrecision) / (double)(highAltitude - lowAltitude);
+						}
+						else {
+							offset = lowPrecision > 0 ? lowPrecision : circlePrecision;
+						}
+						radius = offset;
 					}
-					activeTransmittingPilots[callsign] = pos;
+					if (offset > 0) { // add random offset
+						double distance = disDistance(rdGenerator) * offset;
+						double bearing = disBearing(rdGenerator);
+						double rLat1 = pos.m_Latitude / 180.0 * pi;
+						double rLon1 = pos.m_Longitude / 180.0 * pi;
+						double rDistance = distance / EarthRadius;
+						double rBearing = bearing / 180.0 * pi;
+						double rLat2 = asin(sin(rLat1) * cos(rDistance) + cos(rLat1) * sin(rDistance) * cos(rBearing));
+						double rLon2 = abs(cos(rLat1)) < 0.000001 ? rLon1 : \
+							rLon1 + atan2(sin(rBearing) * sin(rDistance) * cos(rLat1), cos(rDistance) - sin(rLat1) * sin(rLat2));
+						posnew.m_Latitude = rLat2 / pi * 180.0;
+						posnew.m_Longitude = rLon2 / pi * 180.0;
+					}
+					activeTransmittingPilots[callsign] = { posnew, radius };
 				}
+			}
+			else if (drawController && controller.IsValid()) {
+				CPosition pos = controller.GetPosition();
+				activeTransmittingPilots[callsign] = { pos, (double)lowPrecision };
 			}
 		}
 
@@ -246,25 +338,6 @@ void CRDFPlugin::ProcessMessageQueue(void)
 			previousActiveTransmittingPilots = activeTransmittingPilots;
 		}
 	}
-}
-
-CPosition CRDFPlugin::AddRandomOffset(CPosition pos)
-{
-	double distance = disNormal(rdGenerator) * (double)circlePrecision / 2.0;
-	double bearing = disUniform(rdGenerator);
-	CPosition posnew;
-
-	double rLat1 = pos.m_Latitude / 180.0 * pi;
-	double rLon1 = pos.m_Longitude / 180.0 * pi;
-	double rDistance = distance / EarthRadius;
-	double rBearing = bearing / 180.0 * pi;
-	double rLat2 = asin(sin(rLat1) * cos(rDistance) + cos(rLat1) * sin(rDistance) * cos(rBearing));
-	double rLon2 = abs(cos(rLat1)) < 0.000001 ? rLon1 : \
-		rLon1 + atan2(sin(rBearing) * sin(rDistance) * cos(rLat1), cos(rDistance) - sin(rLat1) * sin(rLat2));
-	posnew.m_Latitude = rLat2 / pi * 180.0;
-	posnew.m_Longitude = rLon2 / pi * 180.0;
-
-	return posnew;
 }
 
 void CRDFPlugin::VectorAudioHTTPLoop(void)
@@ -354,7 +427,8 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		char bufferAddr[128] = { 0 };
 		if (sscanf_s(cmd.c_str(), ".RDF ADDRESS %s", bufferAddr, sizeof(bufferAddr))) {
 			addressVectorAudio = string(bufferAddr);
-			DisplayEuroScopeDebugMessage(string("Address: ") + addressVectorAudio);
+			DisplayEuroScopeMessage(string("Address: ") + addressVectorAudio);
+			SaveDataToSettings(SETTING_VECTORAUDIO_ADDRESS, "VectorAudio address", addressVectorAudio.c_str());
 			return true;
 		}
 
@@ -362,7 +436,8 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout)) {
 			if (bufferTimeout >= 100 && bufferTimeout <= 1000) {
 				connectionTimeout = bufferTimeout;
-				DisplayEuroScopeDebugMessage(string("Timeout: ") + to_string(connectionTimeout));
+				DisplayEuroScopeMessage(string("Timeout: ") + to_string(connectionTimeout));
+				SaveDataToSettings(SETTING_VECTORAUDIO_TIMEOUT, "VectorAudio timeout", to_string(connectionTimeout).c_str());
 				return true;
 			}
 		}
@@ -371,7 +446,8 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF POLL %d", &bufferPollInterval)) {
 			if (bufferPollInterval >= 100) {
 				pollInterval = bufferPollInterval;
-				DisplayEuroScopeDebugMessage(string("Poll interval: ") + to_string(bufferPollInterval));
+				DisplayEuroScopeMessage(string("Poll interval: ") + to_string(bufferPollInterval));
+				SaveDataToSettings(SETTING_VECTORAUDIO_POLL_INTERVAL, "VectorAudio poll interval", to_string(pollInterval).c_str());
 				return true;
 			}
 		}
@@ -380,48 +456,93 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF RETRY %d", &bufferRetryInterval)) {
 			if (bufferRetryInterval >= 1) {
 				retryInterval = bufferRetryInterval;
-				DisplayEuroScopeDebugMessage(string("Retry interval: ") + to_string(retryInterval));
+				DisplayEuroScopeMessage(string("Retry interval: ") + to_string(retryInterval));
+				SaveDataToSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL, "VectorAudio retry interval", to_string(retryInterval).c_str());
 				return true;
 			}
 		}
 
 		char bufferRGB[15] = { 0 };
 		if (sscanf_s(cmd.c_str(), ".RDF RGB %s", bufferRGB, sizeof(bufferRGB))) {
+			COLORREF prevRGB = rdfRGB;
 			GetRGB(rdfRGB, bufferRGB);
-			return true;
+			if (rdfRGB != prevRGB) {
+				SaveDataToSettings(SETTING_RGB, "RGB", bufferRGB);
+				DisplayEuroScopeMessage((string("RGB: ") + bufferRGB).c_str());
+				return true;
+			}
 		}
 		else if (sscanf_s(cmd.c_str(), ".RDF CTRGB %s", bufferRGB, sizeof(bufferRGB))) {
+			COLORREF prevRGB = rdfConcurrentTransmissionRGB;
 			GetRGB(rdfConcurrentTransmissionRGB, bufferRGB);
-			return true;
+			if (rdfConcurrentTransmissionRGB != prevRGB) {
+				SaveDataToSettings(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB);
+				DisplayEuroScopeMessage((string("Concurrent RGB: ") + bufferRGB).c_str());
+				return true;
+			}
 		}
 
 		int bufferRadius;
 		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius)) {
 			if (bufferRadius > 0) {
 				circleRadius = bufferRadius;
-				DisplayEuroScopeDebugMessage(string("Radius: ") + to_string(circleRadius));
+				DisplayEuroScopeMessage(string("Radius: ") + to_string(circleRadius));
+				SaveDataToSettings(SETTING_CIRCLE_RADIUS, "Radius", to_string(circleRadius).c_str());
 				return true;
 			}
 		}
 
 		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &circleThreshold)) {
-			DisplayEuroScopeDebugMessage(string("Threshold: ") + to_string(circleThreshold));
+			DisplayEuroScopeMessage(string("Threshold: ") + to_string(circleThreshold));
+			SaveDataToSettings(SETTING_THRESHOLD, "Threshold", to_string(circleThreshold).c_str());
 			return true;
 		}
 
 		int bufferPrecision;
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision)) {
-			if (bufferPrecision > 0) {
+			if (bufferPrecision >= 0) {
 				circlePrecision = bufferPrecision;
-				DisplayEuroScopeDebugMessage(string("Precision: ") + to_string(circlePrecision));
+				DisplayEuroScopeMessage(string("Precision: ") + to_string(circlePrecision));
+				SaveDataToSettings(SETTING_PRECISION, "Precision", to_string(circlePrecision).c_str());
+				return true;
+			}
+		}
+
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &lowAltitude)) {
+			DisplayEuroScopeMessage(string("Altitude (low): ") + to_string(lowAltitude));
+			SaveDataToSettings(SETTING_LOW_ALTITUDE, "Altitude (low)", to_string(lowAltitude).c_str());
+			return true;
+		}
+
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &highAltitude)) {
+			DisplayEuroScopeMessage(string("Altitude (high): ") + to_string(highAltitude));
+			SaveDataToSettings(SETTING_HIGH_ALTITUDE, "Altitude (high)", to_string(highAltitude).c_str());
+			return true;
+		}
+
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision)) {
+			if (bufferPrecision >= 0) {
+				lowPrecision = bufferPrecision;
+				DisplayEuroScopeMessage(string("Precision (low): ") + to_string(lowPrecision));
+				SaveDataToSettings(SETTING_LOW_PRECISION, "Precision (low)", to_string(lowPrecision).c_str());
+				return true;
+			}
+		}
+
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision)) {
+			if (bufferPrecision >= 0) {
+				highPrecision = bufferPrecision;
+				DisplayEuroScopeMessage(string("Precision (high): ") + to_string(highPrecision));
+				SaveDataToSettings(SETTING_HIGH_PRECISION, "Precision (high)", to_string(highPrecision).c_str());
 				return true;
 			}
 		}
 
 		int bufferCtrl;
 		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl)) {
-			DisplayEuroScopeDebugMessage(string("Draw controllers and observers: ") + to_string(drawController));
 			drawController = bufferCtrl;
+			DisplayEuroScopeMessage(string("Draw controllers: ") + to_string(drawController));
+			SaveDataToSettings(SETTING_DRAW_CONTROLLERS, "Draw controllers", to_string(bufferCtrl).c_str());
 			return true;
 		}
 

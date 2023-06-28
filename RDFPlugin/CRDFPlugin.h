@@ -5,13 +5,11 @@
 #include <chrono>
 #include <mutex>
 #include <queue>
-#include <set>
 #include <map>
 #include <random>
 #include <stdexcept>
 #include <sstream>
 #include <iostream>
-#include <future>
 #include <thread>
 #include <atomic>
 #include "HiddenWindow.h"
@@ -20,22 +18,31 @@ using namespace std;
 using namespace EuroScopePlugIn;
 
 const string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-const string MY_PLUGIN_VERSION = "1.3.2";
+const string MY_PLUGIN_VERSION = "1.3.3";
 const string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
 const string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 
-typedef map<string, CPosition> callsign_position;
+typedef struct {
+	CPosition position;
+	double radius;
+} _draw_position;
+typedef map<string, _draw_position> callsign_position;
 
 class CRDFPlugin : public EuroScopePlugIn::CPlugIn
 {
 private:
 
+	int circleRadius;
 	int circlePrecision;
+	int lowAltitude;
+	int highAltitude;
+	int lowPrecision;
+	int highPrecision;
+
 	random_device randomDevice;
 	mt19937 rdGenerator;
-	uniform_real_distribution<> disUniform;
-	normal_distribution<> disNormal;
-	CPosition AddRandomOffset(CPosition pos);
+	uniform_real_distribution<> disBearing;
+	uniform_real_distribution<> disDistance;
 
 	string addressVectorAudio;
 	thread* VectorAudioTransmission;
@@ -90,7 +97,6 @@ public:
 	callsign_position previousActiveTransmittingPilots;
 
 	COLORREF rdfRGB, rdfConcurrentTransmissionRGB;
-	int circleRadius;
 	int circleThreshold;
 
 };

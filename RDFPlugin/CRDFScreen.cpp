@@ -33,9 +33,9 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 	HGDIOBJ oldPen = SelectObject(hDC, hPen);
 
 	for (auto& callsignPos : drawPosition) {
-		POINT pPos = ConvertCoordFromPositionToPixel(callsignPos.second);
+		POINT pPos = ConvertCoordFromPositionToPixel(callsignPos.second.position);
 		if (PlaneIsVisible(pPos, GetRadarArea())) {
-			int drawR = rdfPlugin->circleRadius;
+			double drawR = callsignPos.second.radius;
 			// deal with drawing radius when threshold enabled
 			if (rdfPlugin->circleThreshold >= 0) {
 				CPosition posLD, posRU;
@@ -43,11 +43,11 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 				POINT pLD = ConvertCoordFromPositionToPixel(posLD);
 				POINT pRU = ConvertCoordFromPositionToPixel(posRU);
 				double dst = sqrt(pow(pRU.x - pLD.x, 2) + pow(pRU.y - pLD.y, 2));
-				drawR = round((double)rdfPlugin->circleRadius * dst / posLD.DistanceTo(posRU));
+				drawR = drawR * dst / posLD.DistanceTo(posRU);
 			}
-			if (drawR >= rdfPlugin->circleThreshold) {
+			if (drawR >= (double)rdfPlugin->circleThreshold) {
 				// draw circle
-				Ellipse(hDC, pPos.x - drawR, pPos.y - drawR, pPos.x + drawR, pPos.y + drawR);
+				Ellipse(hDC, pPos.x - round(drawR), pPos.y - round(drawR), pPos.x + round(drawR), pPos.y + round(drawR));
 				continue;
 			}
 		}
