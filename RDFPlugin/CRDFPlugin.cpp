@@ -425,7 +425,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		}
 
 		char bufferAddr[128] = { 0 };
-		if (sscanf_s(cmd.c_str(), ".RDF ADDRESS %s", bufferAddr, sizeof(bufferAddr))) {
+		if (sscanf_s(cmd.c_str(), ".RDF ADDRESS %s", bufferAddr, sizeof(bufferAddr)) == 1) {
 			addressVectorAudio = string(bufferAddr);
 			DisplayEuroScopeMessage(string("Address: ") + addressVectorAudio);
 			SaveDataToSettings(SETTING_VECTORAUDIO_ADDRESS, "VectorAudio address", addressVectorAudio.c_str());
@@ -433,7 +433,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		}
 
 		int bufferTimeout;
-		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout)) {
+		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout) == 1) {
 			if (bufferTimeout >= 100 && bufferTimeout <= 1000) {
 				connectionTimeout = bufferTimeout;
 				DisplayEuroScopeMessage(string("Timeout: ") + to_string(connectionTimeout));
@@ -443,7 +443,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		}
 
 		int bufferPollInterval;
-		if (sscanf_s(cmd.c_str(), ".RDF POLL %d", &bufferPollInterval)) {
+		if (sscanf_s(cmd.c_str(), ".RDF POLL %d", &bufferPollInterval) == 1) {
 			if (bufferPollInterval >= 100) {
 				pollInterval = bufferPollInterval;
 				DisplayEuroScopeMessage(string("Poll interval: ") + to_string(bufferPollInterval));
@@ -453,7 +453,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		}
 
 		int bufferRetryInterval;
-		if (sscanf_s(cmd.c_str(), ".RDF RETRY %d", &bufferRetryInterval)) {
+		if (sscanf_s(cmd.c_str(), ".RDF RETRY %d", &bufferRetryInterval) == 1) {
 			if (bufferRetryInterval >= 1) {
 				retryInterval = bufferRetryInterval;
 				DisplayEuroScopeMessage(string("Retry interval: ") + to_string(retryInterval));
@@ -463,7 +463,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		}
 
 		char bufferRGB[15] = { 0 };
-		if (sscanf_s(cmd.c_str(), ".RDF RGB %s", bufferRGB, sizeof(bufferRGB))) {
+		if (sscanf_s(cmd.c_str(), ".RDF RGB %s", bufferRGB, sizeof(bufferRGB)) == 1) {
 			COLORREF prevRGB = rdfRGB;
 			GetRGB(rdfRGB, bufferRGB);
 			if (rdfRGB != prevRGB) {
@@ -472,7 +472,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 				return true;
 			}
 		}
-		else if (sscanf_s(cmd.c_str(), ".RDF CTRGB %s", bufferRGB, sizeof(bufferRGB))) {
+		else if (sscanf_s(cmd.c_str(), ".RDF CTRGB %s", bufferRGB, sizeof(bufferRGB)) == 1) {
 			COLORREF prevRGB = rdfConcurrentTransmissionRGB;
 			GetRGB(rdfConcurrentTransmissionRGB, bufferRGB);
 			if (rdfConcurrentTransmissionRGB != prevRGB) {
@@ -483,7 +483,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		}
 
 		int bufferRadius;
-		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius)) {
+		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
 			if (bufferRadius > 0) {
 				circleRadius = bufferRadius;
 				DisplayEuroScopeMessage(string("Radius: ") + to_string(circleRadius));
@@ -492,14 +492,14 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 			}
 		}
 
-		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &circleThreshold)) {
+		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &circleThreshold) == 1) {
 			DisplayEuroScopeMessage(string("Threshold: ") + to_string(circleThreshold));
 			SaveDataToSettings(SETTING_THRESHOLD, "Threshold", to_string(circleThreshold).c_str());
 			return true;
 		}
 
 		int bufferPrecision;
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision)) {
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
 				circlePrecision = bufferPrecision;
 				DisplayEuroScopeMessage(string("Precision: ") + to_string(circlePrecision));
@@ -508,19 +508,19 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 			}
 		}
 
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &lowAltitude)) {
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &lowAltitude) == 1) {
 			DisplayEuroScopeMessage(string("Altitude (low): ") + to_string(lowAltitude));
 			SaveDataToSettings(SETTING_LOW_ALTITUDE, "Altitude (low)", to_string(lowAltitude).c_str());
 			return true;
 		}
 
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &highAltitude)) {
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &highAltitude) == 1) {
 			DisplayEuroScopeMessage(string("Altitude (high): ") + to_string(highAltitude));
 			SaveDataToSettings(SETTING_HIGH_ALTITUDE, "Altitude (high)", to_string(highAltitude).c_str());
 			return true;
 		}
 
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision)) {
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
 				lowPrecision = bufferPrecision;
 				DisplayEuroScopeMessage(string("Precision (low): ") + to_string(lowPrecision));
@@ -529,7 +529,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 			}
 		}
 
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision)) {
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
 				highPrecision = bufferPrecision;
 				DisplayEuroScopeMessage(string("Precision (high): ") + to_string(highPrecision));
@@ -539,7 +539,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		}
 
 		int bufferCtrl;
-		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl)) {
+		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
 			drawController = bufferCtrl;
 			DisplayEuroScopeMessage(string("Draw controllers: ") + to_string(drawController));
 			SaveDataToSettings(SETTING_DRAW_CONTROLLERS, "Draw controllers", to_string(bufferCtrl).c_str());
