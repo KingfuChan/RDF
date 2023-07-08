@@ -6,8 +6,9 @@
 
 ## More Customizations
 
-+ Random offset of circle to simulate measuring errors in real life.
-+ Customizable circle radius in nautical miles (instead of pixels).
++ Random radio direction offsets to simulate measuring errors in real life.
++ Customizable circle radius in nautical miles (instead of pixels) meanwhile radius follows precision.
++ Hide radio-direction-finders for low altitude aircrafts.
 + (Old feature) RGB settings for circle or line, and different color for concurrent transmission.
 
 ## Configurations
@@ -16,20 +17,26 @@ There are two ways to modify the plugin settings - by settings file and by comma
 
 This table shows all configurable items.
 
-|Entry Name|Command Line Keyword|Default Value|
-|-|-|-|
-|VectorAudioAddress|ADDRESS|127.0.0.1:49080|
-|VectorAudioTimeout|TIMEOUT|300|
-|VectorAudioPollInterval|POLL|200|
-|VectorAudioRetryInterval|RETRY|5|
-|RGB|RGB|255:255:255|
-|ConcurrentTransmissionRGB|CTRGB|255:0:0|
-|Radius|RADIUS|20|
-|Threshold|THRESHOLD|-1|
-|Precision|PRECISION|0|
-|DrawControllers|CONTROLLER|0|
+|Entry Name|Command Line Keyword|Range|Default Value|
+|-|-|-|-|
+|VectorAudioAddress|ADDRESS||127.0.0.1:49080|
+|VectorAudioTimeout|TIMEOUT|[100, 1000]|300|
+|VectorAudioPollInterval|POLL|[100, +inf)|200|
+|VectorAudioRetryInterval|RETRY|[1, +inf)|5|
+|RGB|RGB|RRR:GGG:BBB|255:255:255|
+|ConcurrentTransmissionRGB|CTRGB|RRR:GGG:BBB|255:0:0|
+|Radius|RADIUS|(0, +inf)|20|
+|Threshold|THRESHOLD||-1|
+|Precision|PRECISION|[0, +inf)|0|
+|LowAltitude|ALTITUDE L_____||0|
+|HighAltitude|ALTITUDE H_____|[0, +inf)|0|
+|LowPrecision|PRECISION L_____||0|
+|HighPrecision|PRECISION H_____|[0, +inf)|0|
+|DrawControllers|CONTROLLER|0 or 1|0|
 
-E.g. In settings files the default is like the following:
+For command line configurations, use ***".RDF KEYWORD VALUE"***, e.g. ***".RDF CTRGB 0:255:255"***. Replace "_____" with value in low/high altitude/precision directly, e.g. ***".RDF ALTITUDE L10000"***. All command line functions are case-insensitive. Command line settings will be saved to plugin settings file (defined in .prf file).
+
+In settings files the default is like the following:
 
 ```text
 PLUGINS
@@ -43,6 +50,10 @@ RDF Plugin for Euroscope:ConcurrentTransmissionRGB:255:0:0
 RDF Plugin for Euroscope:Radius:20
 RDF Plugin for Euroscope:Threshold:-1
 RDF Plugin for Euroscope:Precision:0
+RDF Plugin for Euroscope:LowAltitude:0
+RDF Plugin for Euroscope:HighAltitude:0
+RDF Plugin for Euroscope:LowPrecision:0
+RDF Plugin for Euroscope:HighPrecision:0
 RDF Plugin for Euroscope:DrawControllers:0
 END
 ```
@@ -51,16 +62,36 @@ END
 + **VectorAudioTimeout** is in milliseconds. For VectorAudio HTTP requests.
 + **VectorAudioPollInterval** is in milliseconds. For VectorAudio normal refresh.
 + **VectorAudioRetryInterval** is in seconds. If the plugin disconnets from VectorAudio, it will attempt to re-establish connection every 5 seconds by default.
-+ **RGB, ConcurrentTransmissionRGB**, see *Previous README* below.
-+ **Radius** is in nautical miles (if **Threshold**>0). The circle will get bigger and smaller when zooming in and out.
-+ **Threshold** determines the behaviour of drawing.
-  + If radius (to draw in pixel) is smaller than **Threshold**, it won't be drawn into a circle but a direction line (same as the situation when the target is outside of displayed area). If **Threshold**<0, there won't be any zooming effect, but instead a fixed **Radius** in pixel (same as versions before v1.3.0).
-+ **Precision** is in nautical miles. It is the double of standard deviation in a normal distrubution, which means 97.72% of offset won't be farther than **Precision**. Using 0 means no random offset at all (same as versions before v1.3.0).
-+ **DrawControllers** is compatible with both VectorAudio and AFV. It is used to cover OBS pilots especially in shared cockpit. Other transimitting controllers will be circled as well but without offset. 0 means OFF and other numeric value means ON. *(Sometimes the position of OBS pilots are incorrect due to Euroscope limitation.)*
++ **RGB, ConcurrentTransmissionRGB**, see [Previous README](#installation-and-previous-readme) below.
++ **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
++ **DrawControllers** is compatible with both VectorAudio and AFV. Other transimitting controllers will be circled as well but without offset. 0 means OFF and other numeric value means ON.
 
 When EuroScope is running, you can reload settings in *Settings File Setup* and then enter ***".RDF RELOAD"*** (case-insensitive) in command line.
 
-For command line configurations, use ***".RDF KEYWORD VALUE"***, e.g. ***".RDF CTRGB 0:255:255"***. Also all command line functions are case-insensitive.
+## Random Offset Schematic
+
++ **LowAltitude** in feet, is used to filter aircrafts. Only aircrafts not lower than this altitude will be radio-direction-found.
++ A circle will only be drawn within radar display area. Otherwise a line leading to the target is drawn.
++ Random offsets (when enabled) follow a normal distribution. 99.74% (-3σ ~ 3σ) of offsets are within given precision.
++ **Threshold < 0**:
+  + **Radius** is in pixel. Circles are always drawn in fixed pixel radius.
+  + **Precision** is used for random offset in nautical miles.
+  + Low/High settings are ignored.
++ **Threshold >= 0**:
+  + **Threshold** is in pixel. **Radius** is in nautical miles. **Precision** is in nautical miles.
+  + Circle size will change according to zoom level. Circles are drawn only when its pixel radius is not less than **Threshold**. Otherwise a line leading to the target is drawn.
+  + When **LowPrecision > 0**:
+    + Deprecates **Radius**. All circle radius is determined by precision.
+    + If **HighPrecision > 0 and HighAltitude > LowAltitude**:
+      + Overrides **Precision**. Dynamaic precision is implemented taking aircraft altitude into account.
+      + Precision (= radius) is linearly interpolated or extrapolated by altitude and low/high settings. *Precision = LowPrecision + (Altitude - LowAltitude) / (HighAltitude - LowAltitude) \* (HighPrecision - LowPrecision)*
+    + Otherwise **LowPrecision** precedes **Precision** when determining random offset.
+
+## Known Issues
+
++ It is possible to crash EuroScope when using TopSky at the same time under certain TopSky settings due to conflicting API method to communicate with AFC standalone client. Goto *TopSkySettings.txt* and add *RDF_Mode=-1* to prevent such cases.
++ When using professional correlation mode (S or C) in EuroScope, it's possible some aircraft won't be radio-direction-found because the plugin doesn't know the callsign for an uncorrelated radar target.
++ For dual pilot situation where the transmitting pilot logs in as observer, this plugin will try to drop the last character of the observer callsign and find again if this dropped character is between A-Z. This feature may cause inaccurate radio-direction.
 
 ## Credits
 

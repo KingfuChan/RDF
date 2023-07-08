@@ -23,7 +23,7 @@ using namespace std;
 #define SETTING_DRAW_CONTROLLERS "DrawControllers"
 
 const double pi = 3.141592653589793;
-const double EarthRadius = 6371.393 / 1.852; // nautical miles
+const double EarthRadius = 6371.393 / 1.852; // nautical miles, need tuning in accordance to ES internal setting
 
 CRDFPlugin::CRDFPlugin()
 	: EuroScopePlugIn::CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
@@ -56,7 +56,7 @@ CRDFPlugin::CRDFPlugin()
 
 	this->rdGenerator = mt19937(this->randomDevice());
 	this->disBearing = uniform_real_distribution<>(0.0, 360.0);
-	this->disDistance = uniform_real_distribution<>(0, 1.0);
+	this->disDistance = normal_distribution<>(0, 1.0);
 
 	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
 
@@ -313,7 +313,7 @@ void CRDFPlugin::ProcessMessageQueue(void)
 						radius = offset;
 					}
 					if (offset > 0) { // add random offset
-						double distance = disDistance(rdGenerator) * offset;
+						double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
 						double bearing = disBearing(rdGenerator);
 						double rLat1 = pos.m_Latitude / 180.0 * pi;
 						double rLon1 = pos.m_Longitude / 180.0 * pi;
@@ -324,6 +324,11 @@ void CRDFPlugin::ProcessMessageQueue(void)
 							rLon1 + atan2(sin(rBearing) * sin(rDistance) * cos(rLat1), cos(rDistance) - sin(rLat1) * sin(rLat2));
 						posnew.m_Latitude = rLat2 / pi * 180.0;
 						posnew.m_Longitude = rLon2 / pi * 180.0;
+#ifdef _DEBUG
+						double _dis = pos.DistanceTo(posnew);
+						double _dir = pos.DirectionTo(posnew);
+						DisplayEuroScopeDebugMessage("d: " + to_string(_dis) + "/" + to_string(distance) + " a: " + to_string(_dir) + "/" + to_string(bearing));
+#endif // _DEBUG
 					}
 					activeTransmittingPilots[callsign] = { posnew, radius };
 				}

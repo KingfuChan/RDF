@@ -42,7 +42,7 @@ private:
 	random_device randomDevice;
 	mt19937 rdGenerator;
 	uniform_real_distribution<> disBearing;
-	uniform_real_distribution<> disDistance;
+	normal_distribution<> disDistance;
 
 	string addressVectorAudio;
 	thread* VectorAudioTransmission;
