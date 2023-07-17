@@ -23,7 +23,9 @@ using namespace std;
 #define SETTING_DRAW_CONTROLLERS "DrawControllers"
 
 const double pi = 3.141592653589793;
-const double EarthRadius = 6371.393 / 1.852; // nautical miles, need tuning in accordance to ES internal setting
+const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuroScopeCoord
+constexpr double GEOM_RAD_FROM_DEG(double deg) { return deg * pi / 180.0; };
+constexpr double GEOM_DEG_FROM_RAD(double rad) { return rad / pi * 180.0; };
 
 CRDFPlugin::CRDFPlugin()
 	: EuroScopePlugIn::CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
@@ -315,15 +317,7 @@ void CRDFPlugin::ProcessMessageQueue(void)
 					if (offset > 0) { // add random offset
 						double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
 						double bearing = disBearing(rdGenerator);
-						double rLat1 = pos.m_Latitude / 180.0 * pi;
-						double rLon1 = pos.m_Longitude / 180.0 * pi;
-						double rDistance = distance / EarthRadius;
-						double rBearing = bearing / 180.0 * pi;
-						double rLat2 = asin(sin(rLat1) * cos(rDistance) + cos(rLat1) * sin(rDistance) * cos(rBearing));
-						double rLon2 = abs(cos(rLat1)) < 0.000001 ? rLon1 : \
-							rLon1 + atan2(sin(rBearing) * sin(rDistance) * cos(rLat1), cos(rDistance) - sin(rLat1) * sin(rLat2));
-						posnew.m_Latitude = rLat2 / pi * 180.0;
-						posnew.m_Longitude = rLon2 / pi * 180.0;
+						AddOffset(posnew, bearing, distance);
 #ifdef _DEBUG
 						double _dis = pos.DistanceTo(posnew);
 						double _dir = pos.DirectionTo(posnew);
@@ -343,6 +337,27 @@ void CRDFPlugin::ProcessMessageQueue(void)
 			previousActiveTransmittingPilots = activeTransmittingPilots;
 		}
 	}
+}
+
+void CRDFPlugin::AddOffset(CPosition& position, double heading, double distance)
+{
+	// from ES internal void CEuroScopeCoord :: Move ( double heading, double distance )
+	if (distance < 0.000001)
+		return;
+
+	double m_Lat = position.m_Latitude;
+	double m_Lon = position.m_Longitude;
+
+	double distancePerR = distance / EarthRadius;
+	double cosDistancePerR = cos(distancePerR);
+	double sinDistnacePerR = sin(distancePerR);
+
+	double fi2 = asin(sin(GEOM_RAD_FROM_DEG(m_Lat)) * cosDistancePerR + cos(GEOM_RAD_FROM_DEG(m_Lat)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(heading)));
+	double lambda2 = GEOM_RAD_FROM_DEG(m_Lon) + atan2(sin(GEOM_RAD_FROM_DEG(heading)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(m_Lat)),
+		cosDistancePerR - sin(GEOM_RAD_FROM_DEG(m_Lat)) * sin(fi2));
+
+	position.m_Latitude = GEOM_DEG_FROM_RAD(fi2);
+	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
 }
 
 void CRDFPlugin::VectorAudioHTTPLoop(void)

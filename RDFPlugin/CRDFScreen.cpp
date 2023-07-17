@@ -47,7 +47,27 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 			}
 			if (drawR >= (double)rdfPlugin->circleThreshold) {
 				// draw circle
-				Ellipse(hDC, pPos.x - round(drawR), pPos.y - round(drawR), pPos.x + round(drawR), pPos.y + round(drawR));
+				if (rdfPlugin->circleThreshold >= 0) {
+					// using position as boundary xy
+					CPosition pl = callsignPos.second.position;
+					rdfPlugin->AddOffset(pl, 270, callsignPos.second.radius);
+					CPosition pt = callsignPos.second.position;
+					rdfPlugin->AddOffset(pt, 0, callsignPos.second.radius);
+					CPosition pr = callsignPos.second.position;
+					rdfPlugin->AddOffset(pr, 90, callsignPos.second.radius);
+					CPosition pb = callsignPos.second.position;
+					rdfPlugin->AddOffset(pb, 180, callsignPos.second.radius);
+					Ellipse(hDC,
+						ConvertCoordFromPositionToPixel(pl).x,
+						ConvertCoordFromPositionToPixel(pt).y,
+						ConvertCoordFromPositionToPixel(pr).x,
+						ConvertCoordFromPositionToPixel(pb).y
+					);
+				}
+				else {
+					// using pixel as boundary xy
+					Ellipse(hDC, pPos.x - round(drawR), pPos.y - round(drawR), pPos.x + round(drawR), pPos.y + round(drawR));
+				}
 				continue;
 			}
 		}

@@ -18,7 +18,7 @@ using namespace std;
 using namespace EuroScopePlugIn;
 
 const string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-const string MY_PLUGIN_VERSION = "1.3.3";
+const string MY_PLUGIN_VERSION = "1.3.4";
 const string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
 const string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 
@@ -98,6 +98,8 @@ public:
 
 	COLORREF rdfRGB, rdfConcurrentTransmissionRGB;
 	int circleThreshold;
+
+	void AddOffset(CPosition& position, double heading, double distance);
 
 };
 
