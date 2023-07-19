@@ -3,10 +3,8 @@
 ################################################################################
 
 /.vs/
-/Debug/
-/.DS_Store
-/._.DS_Store
-/Release/
-/RDFPlugin/Debug
+*Debug/
+*.DS_Store
+*Release/
 /RDFPlugin/Release
 ._README.md
