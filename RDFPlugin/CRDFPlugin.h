@@ -45,10 +45,13 @@ private:
 	normal_distribution<> disDistance;
 
 	string addressVectorAudio;
-	thread* VectorAudioTransmission;
 	int connectionTimeout, pollInterval, retryInterval;
-	atomic_bool threadRunning, threadClosed; // for thread control
-	void VectorAudioHTTPLoop(void);
+	// thread controls
+	thread* threadVectorAudioMain, * threadVectorAudioTXRX;
+	atomic_bool threadMainRunning, threadMainClosed,
+		threadTXRXRunning, threadTXRXClosed;
+	void VectorAudioMainLoop(void);
+	void VectorAudioTXRXLoop(void);
 
 	HWND hiddenWindow = NULL;
 

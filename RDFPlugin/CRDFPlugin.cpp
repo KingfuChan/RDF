@@ -6,6 +6,8 @@ using namespace std;
 
 #define VECTORAUDIO_PARAM_VERSION	"/*"
 #define VECTORAUDIO_PARAM_TRANSMIT	"/transmitting"
+#define VECTORAUDIO_PARAM_TX		"/tx"
+#define VECTORAUDIO_PARAM_RX		"/rx"
 
 #define SETTING_VECTORAUDIO_ADDRESS "VectorAudioAddress"
 #define SETTING_VECTORAUDIO_TIMEOUT "VectorAudioTimeout"
@@ -63,21 +65,26 @@ CRDFPlugin::CRDFPlugin()
 	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
 
 	// detach thread for VectorAudio
-	VectorAudioTransmission = new thread(&CRDFPlugin::VectorAudioHTTPLoop, this);
-	VectorAudioTransmission->detach();
+	threadVectorAudioMain = new thread(&CRDFPlugin::VectorAudioMainLoop, this);
+	threadVectorAudioMain->detach();
+	threadVectorAudioTXRX = new thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
+	threadVectorAudioTXRX->detach();
 
 }
 
 CRDFPlugin::~CRDFPlugin()
 {
 	// close detached thread
-	threadRunning = false;
-	threadClosed.wait(false);
+	threadMainRunning = false;
+	threadTXRXRunning = false;
 
 	if (this->hiddenWindow != NULL) {
 		DestroyWindow(this->hiddenWindow);
 	}
 	UnregisterClass("RDFHiddenWindowClass", NULL);
+
+	threadMainClosed.wait(false);
+	threadTXRXClosed.wait(false);
 }
 
 void CRDFPlugin::ProcessAFVMessage(std::string message)
@@ -360,21 +367,21 @@ void CRDFPlugin::AddOffset(CPosition& position, double heading, double distance)
 	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
 }
 
-void CRDFPlugin::VectorAudioHTTPLoop(void)
+void CRDFPlugin::VectorAudioMainLoop(void)
 {
-	threadRunning = true;
-	threadClosed = false;
+	threadMainRunning = true;
+	threadMainClosed = false;
 	bool getTransmit = false;
 	while (true) {
 		for (int sleepRemain = getTransmit ? pollInterval : retryInterval * 1000; sleepRemain > 0;) {
-			if (threadRunning) {
+			if (threadMainRunning) {
 				int sleepThis = min(sleepRemain, pollInterval);
 				this_thread::sleep_for(chrono::milliseconds(sleepThis));
 				sleepRemain -= sleepThis;
 			}
 			else {
-				threadClosed = true;
-				threadClosed.notify_all();
+				threadMainClosed = true;
+				threadMainClosed.notify_all();
 				return;
 			}
 		}
@@ -407,7 +414,7 @@ void CRDFPlugin::VectorAudioHTTPLoop(void)
 				ProcessMessageQueue();
 				continue;
 			}
-			DisplayEuroScopeDebugMessage("HTTP error: " + httplib::to_string(res.error()));
+			DisplayEuroScopeDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
 		}
 		else {
 			DisplayEuroScopeDebugMessage("Not connected");
@@ -416,6 +423,47 @@ void CRDFPlugin::VectorAudioHTTPLoop(void)
 			DisplayEuroScopeMessage("VectorAudio disconnected");
 		}
 		getTransmit = false;
+	}
+}
+
+void CRDFPlugin::VectorAudioTXRXLoop(void)
+{
+	threadTXRXRunning = true;
+	threadTXRXClosed = false;
+	while (true) {
+		for (int sleepRemain = retryInterval * 1000; sleepRemain > 0;) {
+			if (threadTXRXRunning) {
+				int sleepThis = min(sleepRemain, pollInterval);
+				this_thread::sleep_for(chrono::milliseconds(sleepThis));
+				sleepRemain -= sleepThis;
+			}
+			else {
+				threadTXRXClosed = true;
+				threadTXRXClosed.notify_all();
+				return;
+			}
+		}
+
+		httplib::Client cli("http://" + addressVectorAudio);
+		cli.set_connection_timeout(0, connectionTimeout * 1000);
+		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
+			if (res->status == 200) {
+				// TODO: set TX
+				DisplayEuroScopeDebugMessage(string("VectorAudio message on TX: ") + res->body);
+			}
+			else {
+				DisplayEuroScopeDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
+			}
+		}
+		if (auto res = cli.Get(VECTORAUDIO_PARAM_RX)) {
+			if (res->status == 200) {
+				// TODO: set RX
+				DisplayEuroScopeDebugMessage(string("VectorAudio message on RX: ") + res->body);
+			}
+			else {
+				DisplayEuroScopeDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));
+			}
+		}
 	}
 }
 
