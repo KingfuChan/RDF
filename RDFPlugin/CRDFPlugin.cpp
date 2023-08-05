@@ -29,6 +29,10 @@ const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuro
 constexpr double GEOM_RAD_FROM_DEG(double deg) { return deg * pi / 180.0; };
 constexpr double GEOM_DEG_FROM_RAD(double rad) { return rad / pi * 180.0; };
 
+inline bool FrequencyCompare(int freq1, int freq2) { // return true if same frequency, frequency *= 1000
+	return abs(freq1 - freq2) <= 10;
+}
+
 CRDFPlugin::CRDFPlugin()
 	: EuroScopePlugIn::CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 		MY_PLUGIN_NAME.c_str(),
@@ -325,11 +329,6 @@ void CRDFPlugin::ProcessMessageQueue(void)
 						double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
 						double bearing = disBearing(rdGenerator);
 						AddOffset(posnew, bearing, distance);
-#ifdef _DEBUG
-						double _dis = pos.DistanceTo(posnew);
-						double _dir = pos.DirectionTo(posnew);
-						DisplayEuroScopeDebugMessage("d: " + to_string(_dis) + "/" + to_string(distance) + " a: " + to_string(_dir) + "/" + to_string(bearing));
-#endif // _DEBUG
 					}
 					activeTransmittingPilots[callsign] = { posnew, radius };
 				}
@@ -344,6 +343,71 @@ void CRDFPlugin::ProcessMessageQueue(void)
 			previousActiveTransmittingPilots = activeTransmittingPilots;
 		}
 	}
+}
+
+int CRDFPlugin::UpdateChannels(string line, bool mode_tx)
+{
+	// parse message and returns number of total toggles
+	map<string, int> channelFreq;
+	istringstream ssLine(line);
+	string strChnl;
+	while (getline(ssLine, strChnl, ',')) {
+		size_t colon = strChnl.find(':');
+		string channel = strChnl.substr(0, colon);
+		try {
+			// frequencies * 1000 => int
+			int frequency = round(stod(strChnl.substr(colon + 1)) * 1000.0);
+			channelFreq.insert({ channel, frequency });
+		}
+		catch (...) {
+			DisplayEuroScopeDebugMessage("Error when parsing frequencies: " + strChnl);
+			continue;
+		}
+	}
+
+	int count = 0;
+	for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
+		if (chnl.GetIsPrimary() || chnl.GetIsAtis()) { // make sure primary and ATIS are not affected
+			continue;
+		}
+		string chName = chnl.GetName();
+		int chFreq = round(chnl.GetFrequency() * 1000.0);
+		auto it = channelFreq.find(chName);
+		if (it != channelFreq.end() && FrequencyCompare(it->second, chFreq)) { // allows 0.010 of deviation
+			goto _toggle_on;
+		}
+		else if (it == channelFreq.end()) {
+			auto itc = channelFreq.begin();
+			for (; itc != channelFreq.end() && !FrequencyCompare(itc->second, chFreq); itc++); // locate a matching freq
+			if (itc != channelFreq.end()) {
+				size_t posi = itc->first.find('_');
+				size_t posc = chName.find('_');
+				if (itc->first.substr(0, posi) == chName.substr(0, posc)) {
+					goto _toggle_on;
+				}
+			}
+		}
+		// toggle off
+		if (mode_tx && chnl.GetIsTextTransmitOn()) {
+			chnl.ToggleTextTransmit();
+			count++;
+		}
+		else if (!mode_tx && chnl.GetIsTextReceiveOn()) {
+			chnl.ToggleTextReceive();
+			count++;
+		}
+		continue;
+	_toggle_on:
+		if (mode_tx && !chnl.GetIsTextTransmitOn()) {
+			chnl.ToggleTextTransmit();
+			count++;
+		}
+		else if (!mode_tx && !chnl.GetIsTextReceiveOn()) {
+			chnl.ToggleTextReceive();
+			count++;
+		}
+	}
+	return count;
 }
 
 void CRDFPlugin::AddOffset(CPosition& position, double heading, double distance)
@@ -446,10 +510,13 @@ void CRDFPlugin::VectorAudioTXRXLoop(void)
 
 		httplib::Client cli("http://" + addressVectorAudio);
 		cli.set_connection_timeout(0, connectionTimeout * 1000);
+		int count = 0;
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
 			if (res->status == 200) {
-				// TODO: set TX
 				DisplayEuroScopeDebugMessage(string("VectorAudio message on TX: ") + res->body);
+				count += UpdateChannels(res->body, true);
+				DisplayEuroScopeDebugMessage("TX toggles:" + to_string(count));
+
 			}
 			else {
 				DisplayEuroScopeDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
@@ -457,8 +524,9 @@ void CRDFPlugin::VectorAudioTXRXLoop(void)
 		}
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_RX)) {
 			if (res->status == 200) {
-				// TODO: set RX
 				DisplayEuroScopeDebugMessage(string("VectorAudio message on RX: ") + res->body);
+				count += UpdateChannels(res->body, false);
+				DisplayEuroScopeDebugMessage("TX+RX toggles:" + to_string(count));
 			}
 			else {
 				DisplayEuroScopeDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));

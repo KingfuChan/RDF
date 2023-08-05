@@ -79,6 +79,8 @@ private:
 	void LoadSettings(void);
 	void ProcessMessageQueue(void);
 
+	int UpdateChannels(string line, bool mode_tx);
+
 	inline void DisplayEuroScopeDebugMessage(string msg) {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
