@@ -53,16 +53,17 @@ private:
 	void VectorAudioMainLoop(void);
 	void VectorAudioTXRXLoop(void);
 
-	HWND hiddenWindow = NULL;
+	HWND hiddenWindowRDF = NULL;
+	HWND hiddenWindowAFV = NULL;
 
 	mutex messageLock; // Lock for the message queue
 	// Internal message quque
 	queue<set<string>> messages;
 
 	// Class for our window
-	WNDCLASS windowClass = {
+	WNDCLASS windowClassRDF = {
 	   NULL,
-	   HiddenWindow,
+	   HiddenWindowRDF,
 	   NULL,
 	   NULL,
 	   GetModuleHandle(NULL),
@@ -71,6 +72,18 @@ private:
 	   NULL,
 	   NULL,
 	   "RDFHiddenWindowClass"
+	};
+	WNDCLASS windowClassAFV = {
+	   NULL,
+	   HiddenWindowAFV,
+	   NULL,
+	   NULL,
+	   GetModuleHandle(NULL),
+	   NULL,
+	   NULL,
+	   NULL,
+	   NULL,
+	   "AfvBridgeHiddenWindowClass"
 	};
 
 	bool drawController;
@@ -94,6 +107,7 @@ private:
 public:
 	CRDFPlugin();
 	virtual ~CRDFPlugin();
+	void ProcessRDFMessage(string message);
 	void ProcessAFVMessage(string message);
 	virtual CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
 	virtual bool OnCompileCommand(const char* sCommandLine);

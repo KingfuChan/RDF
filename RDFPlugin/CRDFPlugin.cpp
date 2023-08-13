@@ -40,9 +40,9 @@ CRDFPlugin::CRDFPlugin()
 		MY_PLUGIN_DEVELOPER.c_str(),
 		MY_PLUGIN_COPYRIGHT.c_str())
 {
-	RegisterClass(&this->windowClass);
-
-	this->hiddenWindow = CreateWindow(
+	// RDF window
+	RegisterClass(&this->windowClassRDF);
+	this->hiddenWindowRDF = CreateWindow(
 		"RDFHiddenWindowClass",
 		"RDFHiddenWindow",
 		NULL,
@@ -55,9 +55,27 @@ CRDFPlugin::CRDFPlugin()
 		GetModuleHandle(NULL),
 		reinterpret_cast<LPVOID>(this)
 	);
-
 	if (GetLastError() != S_OK) {
-		DisplayEuroScopeMessage("Unable to open communications for RDF plugin");
+		DisplayEuroScopeMessage("Unable to open communications for RDF");
+	}
+
+	// AFV bridge window
+	RegisterClass(&this->windowClassAFV);
+	this->hiddenWindowAFV = CreateWindow(
+		"AfvBridgeHiddenWindowClass",
+		"AfvBridgeHiddenWindow",
+		NULL,
+		0,
+		0,
+		0,
+		0,
+		NULL,
+		NULL,
+		GetModuleHandle(NULL),
+		reinterpret_cast<LPVOID>(this)
+	);
+	if (GetLastError() != S_OK) {
+		DisplayEuroScopeMessage("Unable to open communications for AFV bridge");
 	}
 
 	LoadSettings();
@@ -82,16 +100,21 @@ CRDFPlugin::~CRDFPlugin()
 	threadMainRunning = false;
 	threadTXRXRunning = false;
 
-	if (this->hiddenWindow != NULL) {
-		DestroyWindow(this->hiddenWindow);
+	if (this->hiddenWindowRDF != NULL) {
+		DestroyWindow(this->hiddenWindowRDF);
 	}
 	UnregisterClass("RDFHiddenWindowClass", NULL);
+
+	if (this->hiddenWindowAFV != NULL) {
+		DestroyWindow(this->hiddenWindowAFV);
+	}
+	UnregisterClass("AfvBridgeHiddenWindowClass", NULL);
 
 	threadMainClosed.wait(false);
 	threadTXRXClosed.wait(false);
 }
 
-void CRDFPlugin::ProcessAFVMessage(std::string message)
+void CRDFPlugin::ProcessRDFMessage(std::string message)
 {
 	{
 		std::lock_guard<std::mutex> lock(this->messageLock);
@@ -110,6 +133,14 @@ void CRDFPlugin::ProcessAFVMessage(std::string message)
 		}
 	}
 	ProcessMessageQueue();
+}
+
+void CRDFPlugin::ProcessAFVMessage(string message)
+{
+	// functions as AFV bridge
+	if (message.size()) {
+		DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
+	}
 }
 
 void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
