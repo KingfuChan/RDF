@@ -29,6 +29,9 @@ const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuro
 constexpr double GEOM_RAD_FROM_DEG(double deg) { return deg * pi / 180.0; };
 constexpr double GEOM_DEG_FROM_RAD(double rad) { return rad / pi * 180.0; };
 
+inline int FrequencyConvert(double freq) { // frequency * 1000 => int
+	return round(freq * 1000.0);
+}
 inline bool FrequencyCompare(int freq1, int freq2) { // return true if same frequency, frequency *= 1000
 	return abs(freq1 - freq2) <= 10;
 }
@@ -114,7 +117,7 @@ CRDFPlugin::~CRDFPlugin()
 	threadTXRXClosed.wait(false);
 }
 
-void CRDFPlugin::ProcessRDFMessage(std::string message)
+void CRDFPlugin::HiddenWndProcessRDFMessage(std::string message)
 {
 	{
 		std::lock_guard<std::mutex> lock(this->messageLock);
@@ -132,15 +135,17 @@ void CRDFPlugin::ProcessRDFMessage(std::string message)
 			this->messages.push(set<string>());
 		}
 	}
-	ProcessMessageQueue();
+	ProcessRDFQueue();
 }
 
-void CRDFPlugin::ProcessAFVMessage(string message)
+void CRDFPlugin::HiddenWndProcessAFVMessage(string message)
 {
 	// functions as AFV bridge
-	if (message.size()) {
-		DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
-	}
+	if (!message.size()) return;
+	DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
+	// TODO: set TX/RX
+	// format: xxx.xxx:True:False + xxx.xx0:True:False
+
 }
 
 void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
@@ -311,7 +316,7 @@ void CRDFPlugin::LoadSettings(void)
 
 }
 
-void CRDFPlugin::ProcessMessageQueue(void)
+void CRDFPlugin::ProcessRDFQueue(void)
 {
 	std::lock_guard<std::mutex> lock(this->messageLock);
 	// Process all incoming messages
@@ -376,19 +381,21 @@ void CRDFPlugin::ProcessMessageQueue(void)
 	}
 }
 
-int CRDFPlugin::UpdateChannels(string line, bool mode_tx)
+void CRDFPlugin::UpdateVectorAudioChannels(string line, bool mode_tx)
 {
 	// parse message and returns number of total toggles
 	map<string, int> channelFreq;
 	istringstream ssLine(line);
 	string strChnl;
+	int freqMe = FrequencyConvert(ControllerMyself().GetPrimaryFrequency());
 	while (getline(ssLine, strChnl, ',')) {
 		size_t colon = strChnl.find(':');
 		string channel = strChnl.substr(0, colon);
 		try {
-			// frequencies * 1000 => int
-			int frequency = round(stod(strChnl.substr(colon + 1)) * 1000.0);
-			channelFreq.insert({ channel, frequency });
+			int frequency = FrequencyConvert(stod(strChnl.substr(colon + 1)));
+			if (!FrequencyCompare(freqMe, frequency)) {
+				channelFreq.insert({ channel, frequency });
+			}
 		}
 		catch (...) {
 			DisplayEuroScopeDebugMessage("Error when parsing frequencies: " + strChnl);
@@ -396,15 +403,15 @@ int CRDFPlugin::UpdateChannels(string line, bool mode_tx)
 		}
 	}
 
-	int count = 0;
 	for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
 		if (chnl.GetIsPrimary() || chnl.GetIsAtis()) { // make sure primary and ATIS are not affected
 			continue;
 		}
 		string chName = chnl.GetName();
-		int chFreq = round(chnl.GetFrequency() * 1000.0);
+		int chFreq = FrequencyConvert(chnl.GetFrequency());
 		auto it = channelFreq.find(chName);
 		if (it != channelFreq.end() && FrequencyCompare(it->second, chFreq)) { // allows 0.010 of deviation
+			channelFreq.erase(it);
 			goto _toggle_on;
 		}
 		else if (it == channelFreq.end()) {
@@ -414,31 +421,38 @@ int CRDFPlugin::UpdateChannels(string line, bool mode_tx)
 				size_t posi = itc->first.find('_');
 				size_t posc = chName.find('_');
 				if (itc->first.substr(0, posi) == chName.substr(0, posc)) {
+					channelFreq.erase(itc);
 					goto _toggle_on;
 				}
 			}
 		}
 		// toggle off
-		if (mode_tx && chnl.GetIsTextTransmitOn()) {
-			chnl.ToggleTextTransmit();
-			count++;
+		if (mode_tx) {
+			ToggleChannels(chnl, 0, -1);
 		}
-		else if (!mode_tx && chnl.GetIsTextReceiveOn()) {
-			chnl.ToggleTextReceive();
-			count++;
+		else {
+			ToggleChannels(chnl, -1, 0);
 		}
 		continue;
 	_toggle_on:
-		if (mode_tx && !chnl.GetIsTextTransmitOn()) {
-			chnl.ToggleTextTransmit();
-			count++;
+		if (mode_tx) {
+			ToggleChannels(chnl, 1, -1);
 		}
-		else if (!mode_tx && !chnl.GetIsTextReceiveOn()) {
-			chnl.ToggleTextReceive();
-			count++;
+		else {
+			ToggleChannels(chnl, -1, 1);
 		}
 	}
-	return count;
+}
+
+void CRDFPlugin::ToggleChannels(CGrountToAirChannel Channel, int tx, int rx)
+{
+	// pass tx/rx = -1 to skip
+	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
+		Channel.ToggleTextTransmit();
+	}
+	if (rx >= 0 && rx != (int)Channel.GetIsTextReceiveOn()) {
+		Channel.ToggleTextReceive();
+	}
 }
 
 void CRDFPlugin::AddOffset(CPosition& position, double heading, double distance)
@@ -506,7 +520,7 @@ void CRDFPlugin::VectorAudioMainLoop(void)
 						this->messages.push(strings);
 					}
 				}
-				ProcessMessageQueue();
+				ProcessRDFQueue();
 				continue;
 			}
 			DisplayEuroScopeDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
@@ -541,13 +555,10 @@ void CRDFPlugin::VectorAudioTXRXLoop(void)
 
 		httplib::Client cli("http://" + addressVectorAudio);
 		cli.set_connection_timeout(0, connectionTimeout * 1000);
-		int count = 0;
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
 			if (res->status == 200) {
 				DisplayEuroScopeDebugMessage(string("VectorAudio message on TX: ") + res->body);
-				count += UpdateChannels(res->body, true);
-				DisplayEuroScopeDebugMessage("TX toggles:" + to_string(count));
-
+				UpdateVectorAudioChannels(res->body, true);
 			}
 			else {
 				DisplayEuroScopeDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
@@ -556,8 +567,7 @@ void CRDFPlugin::VectorAudioTXRXLoop(void)
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_RX)) {
 			if (res->status == 200) {
 				DisplayEuroScopeDebugMessage(string("VectorAudio message on RX: ") + res->body);
-				count += UpdateChannels(res->body, false);
-				DisplayEuroScopeDebugMessage("TX+RX toggles:" + to_string(count));
+				UpdateVectorAudioChannels(res->body, false);
 			}
 			else {
 				DisplayEuroScopeDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));

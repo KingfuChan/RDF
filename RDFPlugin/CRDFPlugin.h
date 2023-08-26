@@ -90,9 +90,10 @@ private:
 
 	void GetRGB(COLORREF& color, const char* settingValue);
 	void LoadSettings(void);
-	void ProcessMessageQueue(void);
+	void ProcessRDFQueue(void);
 
-	int UpdateChannels(string line, bool mode_tx);
+	void UpdateVectorAudioChannels(string line, bool mode_tx);
+	void ToggleChannels(CGrountToAirChannel Channel, int tx = -1, int rx = -1);
 
 	inline void DisplayEuroScopeDebugMessage(string msg) {
 #ifdef _DEBUG
@@ -107,8 +108,8 @@ private:
 public:
 	CRDFPlugin();
 	virtual ~CRDFPlugin();
-	void ProcessRDFMessage(string message);
-	void ProcessAFVMessage(string message);
+	void HiddenWndProcessRDFMessage(string message);
+	void HiddenWndProcessAFVMessage(string message);
 	virtual CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
 	virtual bool OnCompileCommand(const char* sCommandLine);
 

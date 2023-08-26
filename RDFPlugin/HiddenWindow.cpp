@@ -16,7 +16,7 @@ LRESULT CALLBACK HiddenWindowRDF(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 		COPYDATASTRUCT* data = reinterpret_cast<COPYDATASTRUCT*>(lParam);
 
 		if (data != nullptr && data->dwData == 666 && data->lpData != nullptr && rdfPlugin != nullptr) {
-			rdfPlugin->ProcessRDFMessage(reinterpret_cast<const char*>(data->lpData));
+			rdfPlugin->HiddenWndProcessRDFMessage(reinterpret_cast<const char*>(data->lpData));
 		}
 		return TRUE;
 	}
@@ -36,7 +36,7 @@ LRESULT CALLBACK HiddenWindowAFV(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
 		COPYDATASTRUCT* data = reinterpret_cast<COPYDATASTRUCT*>(lParam);
 
 		if (data != nullptr && data->dwData == 666 && data->lpData != nullptr && rdfPlugin != nullptr) {
-			rdfPlugin->ProcessAFVMessage(reinterpret_cast<const char*>(data->lpData));
+			rdfPlugin->HiddenWndProcessAFVMessage(reinterpret_cast<const char*>(data->lpData));
 		}
 		return TRUE;
 	}
