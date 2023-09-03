@@ -143,9 +143,71 @@ void CRDFPlugin::HiddenWndProcessAFVMessage(string message)
 	// functions as AFV bridge
 	if (!message.size()) return;
 	DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
-	// TODO: set TX/RX
 	// format: xxx.xxx:True:False + xxx.xx0:True:False
 
+	// parse message
+	queue<string> strings;
+	istringstream f(message);
+	string s;
+	while (getline(f, s, ':')) {
+		strings.push(s);
+	}
+	if (strings.size() != 3) return; // in case of incomplete message
+	int msgFrequency;
+	bool transmitX, receiveX;
+	try {
+		msgFrequency = FrequencyConvert(stod(strings.front()));
+		strings.pop();
+		receiveX = strings.front() == "True";
+		strings.pop();
+		transmitX = strings.front() == "True";
+		strings.pop();
+	}
+	catch (...) {
+		DisplayEuroScopeDebugMessage("Error when parsing AFV message: " + message);
+		return;
+	}
+
+	// abort if frequency is prim
+	if (FrequencyCompare(msgFrequency, FrequencyConvert(ControllerMyself().GetPrimaryFrequency())))
+		return;
+
+	// match frequency to callsign
+	string msgCallsign = ControllerMyself().GetCallsign();
+	for (auto c = ControllerSelectFirst(); c.IsValid(); c = ControllerSelectNext(c)) {
+		if (FrequencyCompare(FrequencyConvert(c.GetPrimaryFrequency()), msgFrequency)) {
+			msgCallsign = c.GetCallsign();
+			break;
+		}
+	}
+
+	// find channel and toggle
+	for (auto c = GroundToArChannelSelectFirst(); c.IsValid(); c = GroundToArChannelSelectNext(c)) {
+		int chFreq = FrequencyConvert(c.GetFrequency());
+		if (c.GetIsPrimary() || c.GetIsAtis() || !FrequencyCompare(chFreq, msgFrequency))
+			continue;
+		string chName = c.GetName();
+		if (msgCallsign == chName) {
+			ToggleChannels(c, transmitX, receiveX);
+			return;
+		}
+		else {
+			size_t posc = msgCallsign.find('_');
+			if (chName.starts_with(msgCallsign.substr(0, posc))) {
+				ToggleChannels(c, transmitX, receiveX);
+				return;
+			}
+		}
+	}
+
+	// no possible match, toggle the first same frequency
+	for (auto c = GroundToArChannelSelectFirst(); c.IsValid(); c = GroundToArChannelSelectNext(c)) {
+		if (!c.GetIsPrimary() && !c.GetIsAtis() &&
+			FrequencyCompare(FrequencyConvert(c.GetFrequency()), msgFrequency)) {
+			ToggleChannels(c, transmitX, receiveX);
+			return;
+		}
+	}
 }
 
 void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
@@ -419,8 +481,7 @@ void CRDFPlugin::UpdateVectorAudioChannels(string line, bool mode_tx)
 			for (; itc != channelFreq.end() && !FrequencyCompare(itc->second, chFreq); itc++); // locate a matching freq
 			if (itc != channelFreq.end()) {
 				size_t posi = itc->first.find('_');
-				size_t posc = chName.find('_');
-				if (itc->first.substr(0, posi) == chName.substr(0, posc)) {
+				if (chName.starts_with(itc->first.substr(0, posi))) {
 					channelFreq.erase(itc);
 					goto _toggle_on;
 				}
@@ -449,9 +510,15 @@ void CRDFPlugin::ToggleChannels(CGrountToAirChannel Channel, int tx, int rx)
 	// pass tx/rx = -1 to skip
 	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
 		Channel.ToggleTextTransmit();
+		DisplayEuroScopeDebugMessage(
+			string("TX toggle: ") + Channel.GetName() + " frequency: " + to_string(Channel.GetFrequency())
+		);
 	}
 	if (rx >= 0 && rx != (int)Channel.GetIsTextReceiveOn()) {
 		Channel.ToggleTextReceive();
+		DisplayEuroScopeDebugMessage(
+			string("RX toggle: ") + Channel.GetName() + " frequency: " + to_string(Channel.GetFrequency())
+		);
 	}
 }
 
