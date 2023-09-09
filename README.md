@@ -2,7 +2,7 @@
 
 ## Support *VectorAudio*/0.5.0+
 
-[*VectorAudio*](https://github.com/pierr3/*) is an officially recognized multi-platform Audio-For-VATSIM ATC client for Windows, macOS and Linux. This improved RDF plugin utilizes *VectorAudio*'s SDK and sends HTTP GET requests to get transmitting stations and RX/TX status.
+[*VectorAudio*](https://github.com/pierr3/VectorAudio) is an officially recognized multi-platform Audio-For-VATSIM ATC client for Windows, macOS and Linux. This improved RDF plugin utilizes *VectorAudio*'s SDK and sends HTTP GET requests to get transmitting stations and RX/TX status.
 
 ## More Customizations
 
@@ -13,10 +13,10 @@
 
 ## Integrate afv-bridge
 
-Do the same work in [*afv-euroscope-bridge*](https://github.com/AndyTWF/afv-euroscope-bridge). Supports both *VectorAudio* and *Audio for VATSIM standalone client*. When a new radio station is set up for RX/TX, RDF detects its status and toggles respective channels in EuroScope.
+Do the same work as [*afv-euroscope-bridge*](https://github.com/AndyTWF/afv-euroscope-bridge). Supports both *VectorAudio* and *Audio for VATSIM standalone client*. When a new radio station is set up for RX/TX, RDF detects its status and toggles respective channels in EuroScope.
 
 + For *Audio for VATSIM standalone client*, toggles are made instantly.
-+ For *VectorAudio*, the status are updated in an interval of **VectorAudioRetryInterval**, by default 5 seconds. See below.
++ For *VectorAudio*, the status are updated at an interval of **VectorAudioRetryInterval**, by default 5 seconds. See below.
 
 ## Configurations
 
@@ -96,7 +96,7 @@ When EuroScope is running, you can reload settings in *Settings File Setup* and 
 
 ## Known Issues
 
-+ EuroScope may crash when using TopSky at the same time with certain TopSky settings due to conflicting API method to communicate with Audio for VATSIM standalone client. Goto *TopSkySettings.txt* and add *RDF_Mode=-1* to prevent such cases.
++ EuroScope may crash when using TopSky at the same time with certain TopSky settings due to conflicting API method to communicate with *Audio for VATSIM standalone client*. Goto *TopSkySettings.txt* and add *RDF_Mode=-1* to prevent such cases.
 + Do not simultaneously load this plugin along with the older version of RDF, or with the original *afv-euroscope-bridge* plugin, which may cause unexpected behavior.
 + *Audio for VATSIM standalone client* doesn't provide callsign for RX/TX, so this plugin has to guess the corresponding callsign and it don't guarantee 100% correct toggles. But it shouldn't affect text receive and transmit function.
 + When using professional correlation mode (S or C) in EuroScope, it's possible some aircraft won't be radio-direction-found because the plugin doesn't know the callsign for an uncorrelated radar target.
