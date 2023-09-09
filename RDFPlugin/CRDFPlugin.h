@@ -96,14 +96,18 @@ private:
 	void UpdateVectorAudioChannels(string line, bool mode_tx);
 	void ToggleChannels(CGrountToAirChannel Channel, int tx = -1, int rx = -1);
 
-	inline void DisplayEuroScopeDebugMessage(string msg) {
+	inline void DisplayDebugMessage(string msg) {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
 	}
 
-	inline void DisplayEuroScopeMessage(string msg) {
+	inline void DisplayInfoMessage(string msg) {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
+	}
+
+	inline void DisplayWarnMessage(string msg) {
+		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
 	}
 
 public:

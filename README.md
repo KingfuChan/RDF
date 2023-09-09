@@ -1,15 +1,22 @@
 # RDF
 
-## Support VectorAudio/0.5.0+
+## Support *VectorAudio*/0.5.0+
 
-[VectorAudio](https://github.com/pierr3/VectorAudio) is an Audio-For-VATSIM ATC client for macOS and Linux. It provides better audio quality when EuroScope is running in a Windows virtual machine. This improved RDF plugin utilizes VectorAudio's SDK and sends HTTP GET request every second to get transmitting pilots *and controllers*.
+[*VectorAudio*](https://github.com/pierr3/*) is an officially recognized multi-platform Audio-For-VATSIM ATC client for Windows, macOS and Linux. This improved RDF plugin utilizes *VectorAudio*'s SDK and sends HTTP GET requests to get transmitting stations and RX/TX status.
 
 ## More Customizations
 
 + Random radio direction offsets to simulate measuring errors in real life.
-+ Customizable circle radius in nautical miles (instead of pixels) meanwhile radius follows precision.
++ Simulate precision via variable circle radius in nautical miles.
 + Hide radio-direction-finders for low altitude aircrafts.
 + (Old feature) RGB settings for circle or line, and different color for concurrent transmission.
+
+## Integrate afv-bridge
+
+Do the same work in [*afv-euroscope-bridge*](https://github.com/AndyTWF/afv-euroscope-bridge). Supports both *VectorAudio* and *Audio for VATSIM standalone client*. When a new radio station is set up for RX/TX, RDF detects its status and toggles respective channels in EuroScope.
+
++ For *Audio for VATSIM standalone client*, toggles are made instantly.
++ For *VectorAudio*, the status are updated in an interval of **VectorAudioRetryInterval**, by default 5 seconds. See below.
 
 ## Configurations
 
@@ -59,12 +66,12 @@ END
 ```
 
 + **VectorAudioAddress** should include address and port only. E.g. 127.0.0.1:49080 or localhost:49080, etc.
-+ **VectorAudioTimeout** is in milliseconds. For VectorAudio HTTP requests.
-+ **VectorAudioPollInterval** is in milliseconds. For VectorAudio normal refresh.
-+ **VectorAudioRetryInterval** is in seconds. If the plugin disconnets from VectorAudio, it will attempt to re-establish connection every 5 seconds by default.
++ **VectorAudioTimeout** is in milliseconds. For *VectorAudio* HTTP requests.
++ **VectorAudioPollInterval** is in milliseconds. For *VectorAudio* normal refresh.
++ **VectorAudioRetryInterval** is in seconds. If the plugin disconnets from *VectorAudio*, it will attempt to re-establish connection every 5 seconds by default. This value is also used to update RX/TX channels.
 + **RGB, ConcurrentTransmissionRGB**, see [Previous README](#installation-and-previous-readme) below.
 + **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
-+ **DrawControllers** is compatible with both VectorAudio and AFV. Other transimitting controllers will be circled as well but without offset. 0 means OFF and other numeric value means ON.
++ **DrawControllers** is compatible with both *VectorAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be circled as well but without offset. 0 means OFF and other numeric value means ON.
 
 When EuroScope is running, you can reload settings in *Settings File Setup* and then enter ***".RDF RELOAD"*** (case-insensitive) in command line.
 
@@ -89,14 +96,17 @@ When EuroScope is running, you can reload settings in *Settings File Setup* and 
 
 ## Known Issues
 
-+ It is possible to crash EuroScope when using TopSky at the same time under certain TopSky settings due to conflicting API method to communicate with AFC standalone client. Goto *TopSkySettings.txt* and add *RDF_Mode=-1* to prevent such cases.
++ EuroScope may crash when using TopSky at the same time with certain TopSky settings due to conflicting API method to communicate with Audio for VATSIM standalone client. Goto *TopSkySettings.txt* and add *RDF_Mode=-1* to prevent such cases.
++ Do not simultaneously load this plugin along with the older version of RDF, or with the original *afv-euroscope-bridge* plugin, which may cause unexpected behavior.
++ *Audio for VATSIM standalone client* doesn't provide callsign for RX/TX, so this plugin has to guess the corresponding callsign and it don't guarantee 100% correct toggles. But it shouldn't affect text receive and transmit function.
 + When using professional correlation mode (S or C) in EuroScope, it's possible some aircraft won't be radio-direction-found because the plugin doesn't know the callsign for an uncorrelated radar target.
 + For dual pilot situation where the transmitting pilot logs in as observer, this plugin will try to drop the last character of the observer callsign and find again if this dropped character is between A-Z. This feature may cause inaccurate radio-direction.
 
 ## Credits
 
 + [pierr3/VectorAudio](https://github.com/pierr3/VectorAudio): initiative.
-+ [chembergj/RDF](https://github.com/chembergj/RDF): basic drawings and AFV message handling.
++ [chembergj/RDF](https://github.com/chembergj/RDF): basic drawings.
++ [AndyTWF/afv-euroscope-bridge](https://github.com/AndyTWF/afv-euroscope-bridge): *Audio for VATSIM standalone client* message handling.
 + [LeoChen98](https://github.com/LeoChen98), [websterzh](https://github.com/websterzh): idea of using HTTP requests.
 + [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib): HTTP library.
 + [vaccfr/CoFrance](https://github.com/vaccfr/CoFrance): method to use async HTTP requests (deprecated since v1.3.2).

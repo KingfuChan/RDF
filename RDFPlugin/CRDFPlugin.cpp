@@ -59,7 +59,7 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		DisplayEuroScopeMessage("Unable to open communications for RDF");
+		DisplayWarnMessage("Unable to open communications for RDF");
 	}
 
 	// AFV bridge window
@@ -78,7 +78,7 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		DisplayEuroScopeMessage("Unable to open communications for AFV bridge");
+		DisplayWarnMessage("Unable to open communications for AFV bridge");
 	}
 
 	LoadSettings();
@@ -87,7 +87,7 @@ CRDFPlugin::CRDFPlugin()
 	this->disBearing = uniform_real_distribution<>(0.0, 360.0);
 	this->disDistance = normal_distribution<>(0, 1.0);
 
-	DisplayEuroScopeMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
+	DisplayInfoMessage(string("Version " + MY_PLUGIN_VERSION + " loaded"));
 
 	// detach thread for VectorAudio
 	threadVectorAudioMain = new thread(&CRDFPlugin::VectorAudioMainLoop, this);
@@ -122,7 +122,7 @@ void CRDFPlugin::HiddenWndProcessRDFMessage(std::string message)
 	{
 		std::lock_guard<std::mutex> lock(this->messageLock);
 		if (message.size()) {
-			DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
+			DisplayDebugMessage(string("AFV message: ") + message);
 			set<string> strings;
 			istringstream f(message);
 			string s;
@@ -142,7 +142,7 @@ void CRDFPlugin::HiddenWndProcessAFVMessage(string message)
 {
 	// functions as AFV bridge
 	if (!message.size()) return;
-	DisplayEuroScopeDebugMessage(string("AFV message: ") + message);
+	DisplayDebugMessage(string("AFV message: ") + message);
 	// format: xxx.xxx:True:False + xxx.xx0:True:False
 
 	// parse message
@@ -164,7 +164,7 @@ void CRDFPlugin::HiddenWndProcessAFVMessage(string message)
 		strings.pop();
 	}
 	catch (...) {
-		DisplayEuroScopeDebugMessage("Error when parsing AFV message: " + message);
+		DisplayDebugMessage("Error when parsing AFV message: " + message);
 		return;
 	}
 
@@ -215,7 +215,7 @@ void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
 	unsigned int r, g, b;
 	sscanf_s(settingValue, "%u:%u:%u", &r, &g, &b);
 	if (r <= 255 && g <= 255 && b <= 255) {
-		DisplayEuroScopeDebugMessage(string("R: ") + to_string(r) + string(" G: ") + to_string(g) + string(" B: ") + to_string(b));
+		DisplayDebugMessage(string("R: ") + to_string(r) + string(" G: ") + to_string(g) + string(" B: ") + to_string(b));
 		color = RGB(r, g, b);
 	}
 }
@@ -250,7 +250,7 @@ void CRDFPlugin::LoadSettings(void)
 		if (cstrAddrVA != NULL)
 		{
 			addressVectorAudio = cstrAddrVA;
-			DisplayEuroScopeDebugMessage(string("Address: ") + addressVectorAudio);
+			DisplayDebugMessage(string("Address: ") + addressVectorAudio);
 		}
 
 		const char* cstrTimeout = GetDataFromSettings(SETTING_VECTORAUDIO_TIMEOUT);
@@ -259,7 +259,7 @@ void CRDFPlugin::LoadSettings(void)
 			int parsedTimeout = atoi(cstrTimeout);
 			if (parsedTimeout >= 100 && parsedTimeout <= 1000) {
 				connectionTimeout = parsedTimeout;
-				DisplayEuroScopeDebugMessage(string("Timeout: ") + to_string(connectionTimeout));
+				DisplayDebugMessage(string("Timeout: ") + to_string(connectionTimeout));
 			}
 		}
 
@@ -269,7 +269,7 @@ void CRDFPlugin::LoadSettings(void)
 			int parsedInterval = atoi(cstrPollInterval);
 			if (parsedInterval >= 100) {
 				pollInterval = parsedInterval;
-				DisplayEuroScopeDebugMessage(string("Poll interval: ") + to_string(pollInterval));
+				DisplayDebugMessage(string("Poll interval: ") + to_string(pollInterval));
 			}
 		}
 
@@ -279,7 +279,7 @@ void CRDFPlugin::LoadSettings(void)
 			int parsedInterval = atoi(cstrRetryInterval);
 			if (parsedInterval >= 1) {
 				retryInterval = parsedInterval;
-				DisplayEuroScopeDebugMessage(string("Retry interval: ") + to_string(retryInterval));
+				DisplayDebugMessage(string("Retry interval: ") + to_string(retryInterval));
 			}
 		}
 
@@ -301,7 +301,7 @@ void CRDFPlugin::LoadSettings(void)
 			int parsedRadius = atoi(cstrRadius);
 			if (parsedRadius > 0) {
 				circleRadius = parsedRadius;
-				DisplayEuroScopeDebugMessage(string("Radius: ") + to_string(circleRadius));
+				DisplayDebugMessage(string("Radius: ") + to_string(circleRadius));
 			}
 		}
 
@@ -309,7 +309,7 @@ void CRDFPlugin::LoadSettings(void)
 		if (cstrThreshold != NULL)
 		{
 			circleThreshold = atoi(cstrThreshold);
-			DisplayEuroScopeDebugMessage(string("Threshold: ") + to_string(circleThreshold));
+			DisplayDebugMessage(string("Threshold: ") + to_string(circleThreshold));
 		}
 
 		const char* cstrPrecision = GetDataFromSettings(SETTING_PRECISION);
@@ -318,7 +318,7 @@ void CRDFPlugin::LoadSettings(void)
 			int parsedPrecision = atoi(cstrPrecision);
 			if (parsedPrecision >= 0) {
 				circlePrecision = parsedPrecision;
-				DisplayEuroScopeDebugMessage(string("Precision: ") + to_string(circlePrecision));
+				DisplayDebugMessage(string("Precision: ") + to_string(circlePrecision));
 			}
 		}
 
@@ -327,7 +327,7 @@ void CRDFPlugin::LoadSettings(void)
 		{
 			int parsedAlt = atoi(cstrLowAlt);
 			lowAltitude = parsedAlt;
-			DisplayEuroScopeDebugMessage(string("Low Altitude: ") + to_string(lowAltitude));
+			DisplayDebugMessage(string("Low Altitude: ") + to_string(lowAltitude));
 		}
 
 		const char* cstrHighAlt = GetDataFromSettings(SETTING_HIGH_ALTITUDE);
@@ -336,7 +336,7 @@ void CRDFPlugin::LoadSettings(void)
 			int parsedAlt = atoi(cstrHighAlt);
 			if (parsedAlt > 0) {
 				highAltitude = parsedAlt;
-				DisplayEuroScopeDebugMessage(string("High Altitude: ") + to_string(highAltitude));
+				DisplayDebugMessage(string("High Altitude: ") + to_string(highAltitude));
 			}
 		}
 
@@ -346,7 +346,7 @@ void CRDFPlugin::LoadSettings(void)
 			int parsedPrecision = atoi(cstrLowPrecision);
 			if (parsedPrecision >= 0) {
 				lowPrecision = parsedPrecision;
-				DisplayEuroScopeDebugMessage(string("Low Precision: ") + to_string(lowPrecision));
+				DisplayDebugMessage(string("Low Precision: ") + to_string(lowPrecision));
 			}
 		}
 
@@ -356,7 +356,7 @@ void CRDFPlugin::LoadSettings(void)
 			int parsedPrecision = atoi(cstrHighPrecision);
 			if (parsedPrecision >= 0) {
 				highPrecision = parsedPrecision;
-				DisplayEuroScopeDebugMessage(string("High Precision: ") + to_string(highPrecision));
+				DisplayDebugMessage(string("High Precision: ") + to_string(highPrecision));
 			}
 		}
 
@@ -364,16 +364,16 @@ void CRDFPlugin::LoadSettings(void)
 		if (cstrController != NULL)
 		{
 			drawController = (bool)atoi(cstrController);
-			DisplayEuroScopeDebugMessage(string("Draw controllers and observers: ") + to_string(drawController));
+			DisplayDebugMessage(string("Draw controllers and observers: ") + to_string(drawController));
 		}
 	}
 	catch (std::runtime_error const& e)
 	{
-		DisplayEuroScopeMessage(string("Error: ") + e.what());
+		DisplayWarnMessage(string("Error: ") + e.what());
 	}
 	catch (...)
 	{
-		DisplayEuroScopeMessage(string("Unexpected error: ") + to_string(GetLastError()));
+		DisplayWarnMessage(string("Unexpected error: ") + to_string(GetLastError()));
 	}
 
 }
@@ -460,7 +460,7 @@ void CRDFPlugin::UpdateVectorAudioChannels(string line, bool mode_tx)
 			}
 		}
 		catch (...) {
-			DisplayEuroScopeDebugMessage("Error when parsing frequencies: " + strChnl);
+			DisplayDebugMessage("Error when parsing frequencies: " + strChnl);
 			continue;
 		}
 	}
@@ -510,13 +510,13 @@ void CRDFPlugin::ToggleChannels(CGrountToAirChannel Channel, int tx, int rx)
 	// pass tx/rx = -1 to skip
 	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
 		Channel.ToggleTextTransmit();
-		DisplayEuroScopeDebugMessage(
+		DisplayDebugMessage(
 			string("TX toggle: ") + Channel.GetName() + " frequency: " + to_string(Channel.GetFrequency())
 		);
 	}
 	if (rx >= 0 && rx != (int)Channel.GetIsTextReceiveOn()) {
 		Channel.ToggleTextReceive();
-		DisplayEuroScopeDebugMessage(
+		DisplayDebugMessage(
 			string("RX toggle: ") + Channel.GetName() + " frequency: " + to_string(Channel.GetFrequency())
 		);
 	}
@@ -566,9 +566,9 @@ void CRDFPlugin::VectorAudioMainLoop(void)
 		cli.set_connection_timeout(0, connectionTimeout * 1000);
 		if (auto res = cli.Get(getTransmit ? VECTORAUDIO_PARAM_TRANSMIT : VECTORAUDIO_PARAM_VERSION)) {
 			if (res->status == 200) {
-				DisplayEuroScopeDebugMessage(string("VectorAudio message: ") + res->body);
+				DisplayDebugMessage(string("VectorAudio message: ") + res->body);
 				if (!getTransmit) {
-					DisplayEuroScopeMessage("Connected to " + res->body);
+					DisplayInfoMessage("Connected to " + res->body);
 					getTransmit = true;
 					continue;
 				}
@@ -590,13 +590,13 @@ void CRDFPlugin::VectorAudioMainLoop(void)
 				ProcessRDFQueue();
 				continue;
 			}
-			DisplayEuroScopeDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
+			DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
 		}
 		else {
-			DisplayEuroScopeDebugMessage("Not connected");
+			DisplayDebugMessage("Not connected");
 		}
 		if (getTransmit) {
-			DisplayEuroScopeMessage("VectorAudio disconnected");
+			DisplayWarnMessage("VectorAudio disconnected");
 		}
 		getTransmit = false;
 	}
@@ -606,6 +606,7 @@ void CRDFPlugin::VectorAudioTXRXLoop(void)
 {
 	threadTXRXRunning = true;
 	threadTXRXClosed = false;
+	bool suppressEmpty = false;
 	while (true) {
 		for (int sleepRemain = retryInterval * 1000; sleepRemain > 0;) {
 			if (threadTXRXRunning) {
@@ -622,23 +623,41 @@ void CRDFPlugin::VectorAudioTXRXLoop(void)
 
 		httplib::Client cli("http://" + addressVectorAudio);
 		cli.set_connection_timeout(0, connectionTimeout * 1000);
+		bool isActive = false; // false when no active station, for warning
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
 			if (res->status == 200) {
-				DisplayEuroScopeDebugMessage(string("VectorAudio message on TX: ") + res->body);
+				DisplayDebugMessage(string("VectorAudio message on TX: ") + res->body);
+				isActive = isActive || res->body.size();
 				UpdateVectorAudioChannels(res->body, true);
 			}
 			else {
-				DisplayEuroScopeDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
+				DisplayDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
+				suppressEmpty = true;
 			}
+		}
+		else {
+			suppressEmpty = true;
 		}
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_RX)) {
 			if (res->status == 200) {
-				DisplayEuroScopeDebugMessage(string("VectorAudio message on RX: ") + res->body);
+				DisplayDebugMessage(string("VectorAudio message on RX: ") + res->body);
+				isActive = isActive || res->body.size();
 				UpdateVectorAudioChannels(res->body, false);
 			}
 			else {
-				DisplayEuroScopeDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));
+				DisplayDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));
+				suppressEmpty = true;
 			}
+		}
+		else {
+			suppressEmpty = true;
+		}
+		if (!isActive && !suppressEmpty) {
+			DisplayWarnMessage("No active stations in VecterAudio! Please check configuration.");
+			suppressEmpty = true;
+		}
+		else if (isActive) {
+			suppressEmpty = false;
 		}
 	}
 }
@@ -649,7 +668,7 @@ CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool CanBeSaved,
 	bool CanBeCreated)
 {
-	DisplayEuroScopeMessage(string("Radio Direction Finder plugin activated on ") + sDisplayName);
+	DisplayInfoMessage(string("Radio Direction Finder plugin activated on ") + sDisplayName);
 
 	return new CRDFScreen(this);
 }
@@ -671,7 +690,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		char bufferAddr[128] = { 0 };
 		if (sscanf_s(cmd.c_str(), ".RDF ADDRESS %s", bufferAddr, sizeof(bufferAddr)) == 1) {
 			addressVectorAudio = string(bufferAddr);
-			DisplayEuroScopeMessage(string("Address: ") + addressVectorAudio);
+			DisplayInfoMessage(string("Address: ") + addressVectorAudio);
 			SaveDataToSettings(SETTING_VECTORAUDIO_ADDRESS, "VectorAudio address", addressVectorAudio.c_str());
 			return true;
 		}
@@ -680,7 +699,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout) == 1) {
 			if (bufferTimeout >= 100 && bufferTimeout <= 1000) {
 				connectionTimeout = bufferTimeout;
-				DisplayEuroScopeMessage(string("Timeout: ") + to_string(connectionTimeout));
+				DisplayInfoMessage(string("Timeout: ") + to_string(connectionTimeout));
 				SaveDataToSettings(SETTING_VECTORAUDIO_TIMEOUT, "VectorAudio timeout", to_string(connectionTimeout).c_str());
 				return true;
 			}
@@ -690,7 +709,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF POLL %d", &bufferPollInterval) == 1) {
 			if (bufferPollInterval >= 100) {
 				pollInterval = bufferPollInterval;
-				DisplayEuroScopeMessage(string("Poll interval: ") + to_string(bufferPollInterval));
+				DisplayInfoMessage(string("Poll interval: ") + to_string(bufferPollInterval));
 				SaveDataToSettings(SETTING_VECTORAUDIO_POLL_INTERVAL, "VectorAudio poll interval", to_string(pollInterval).c_str());
 				return true;
 			}
@@ -700,7 +719,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF RETRY %d", &bufferRetryInterval) == 1) {
 			if (bufferRetryInterval >= 1) {
 				retryInterval = bufferRetryInterval;
-				DisplayEuroScopeMessage(string("Retry interval: ") + to_string(retryInterval));
+				DisplayInfoMessage(string("Retry interval: ") + to_string(retryInterval));
 				SaveDataToSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL, "VectorAudio retry interval", to_string(retryInterval).c_str());
 				return true;
 			}
@@ -712,7 +731,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 			GetRGB(rdfRGB, bufferRGB);
 			if (rdfRGB != prevRGB) {
 				SaveDataToSettings(SETTING_RGB, "RGB", bufferRGB);
-				DisplayEuroScopeMessage((string("RGB: ") + bufferRGB).c_str());
+				DisplayInfoMessage((string("RGB: ") + bufferRGB).c_str());
 				return true;
 			}
 		}
@@ -721,7 +740,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 			GetRGB(rdfConcurrentTransmissionRGB, bufferRGB);
 			if (rdfConcurrentTransmissionRGB != prevRGB) {
 				SaveDataToSettings(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB);
-				DisplayEuroScopeMessage((string("Concurrent RGB: ") + bufferRGB).c_str());
+				DisplayInfoMessage((string("Concurrent RGB: ") + bufferRGB).c_str());
 				return true;
 			}
 		}
@@ -730,14 +749,14 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
 			if (bufferRadius > 0) {
 				circleRadius = bufferRadius;
-				DisplayEuroScopeMessage(string("Radius: ") + to_string(circleRadius));
+				DisplayInfoMessage(string("Radius: ") + to_string(circleRadius));
 				SaveDataToSettings(SETTING_CIRCLE_RADIUS, "Radius", to_string(circleRadius).c_str());
 				return true;
 			}
 		}
 
 		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &circleThreshold) == 1) {
-			DisplayEuroScopeMessage(string("Threshold: ") + to_string(circleThreshold));
+			DisplayInfoMessage(string("Threshold: ") + to_string(circleThreshold));
 			SaveDataToSettings(SETTING_THRESHOLD, "Threshold", to_string(circleThreshold).c_str());
 			return true;
 		}
@@ -746,20 +765,20 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
 				circlePrecision = bufferPrecision;
-				DisplayEuroScopeMessage(string("Precision: ") + to_string(circlePrecision));
+				DisplayInfoMessage(string("Precision: ") + to_string(circlePrecision));
 				SaveDataToSettings(SETTING_PRECISION, "Precision", to_string(circlePrecision).c_str());
 				return true;
 			}
 		}
 
 		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &lowAltitude) == 1) {
-			DisplayEuroScopeMessage(string("Altitude (low): ") + to_string(lowAltitude));
+			DisplayInfoMessage(string("Altitude (low): ") + to_string(lowAltitude));
 			SaveDataToSettings(SETTING_LOW_ALTITUDE, "Altitude (low)", to_string(lowAltitude).c_str());
 			return true;
 		}
 
 		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &highAltitude) == 1) {
-			DisplayEuroScopeMessage(string("Altitude (high): ") + to_string(highAltitude));
+			DisplayInfoMessage(string("Altitude (high): ") + to_string(highAltitude));
 			SaveDataToSettings(SETTING_HIGH_ALTITUDE, "Altitude (high)", to_string(highAltitude).c_str());
 			return true;
 		}
@@ -767,7 +786,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
 				lowPrecision = bufferPrecision;
-				DisplayEuroScopeMessage(string("Precision (low): ") + to_string(lowPrecision));
+				DisplayInfoMessage(string("Precision (low): ") + to_string(lowPrecision));
 				SaveDataToSettings(SETTING_LOW_PRECISION, "Precision (low)", to_string(lowPrecision).c_str());
 				return true;
 			}
@@ -776,7 +795,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
 				highPrecision = bufferPrecision;
-				DisplayEuroScopeMessage(string("Precision (high): ") + to_string(highPrecision));
+				DisplayInfoMessage(string("Precision (high): ") + to_string(highPrecision));
 				SaveDataToSettings(SETTING_HIGH_PRECISION, "Precision (high)", to_string(highPrecision).c_str());
 				return true;
 			}
@@ -785,7 +804,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 		int bufferCtrl;
 		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
 			drawController = bufferCtrl;
-			DisplayEuroScopeMessage(string("Draw controllers: ") + to_string(drawController));
+			DisplayInfoMessage(string("Draw controllers: ") + to_string(drawController));
 			SaveDataToSettings(SETTING_DRAW_CONTROLLERS, "Draw controllers", to_string(bufferCtrl).c_str());
 			return true;
 		}
@@ -793,7 +812,7 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 	}
 	catch (const std::exception& e)
 	{
-		DisplayEuroScopeDebugMessage(e.what());
+		DisplayWarnMessage(e.what());
 	}
 	return false;
 }
