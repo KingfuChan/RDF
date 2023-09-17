@@ -4,6 +4,7 @@
 #include <string>
 #include <chrono>
 #include <mutex>
+#include <set>
 #include <queue>
 #include <map>
 #include <random>
@@ -45,21 +46,25 @@ private:
 	normal_distribution<> disDistance;
 
 	string addressVectorAudio;
-	thread* VectorAudioTransmission;
 	int connectionTimeout, pollInterval, retryInterval;
-	atomic_bool threadRunning, threadClosed; // for thread control
-	void VectorAudioHTTPLoop(void);
+	// thread controls
+	thread* threadVectorAudioMain, * threadVectorAudioTXRX;
+	atomic_bool threadMainRunning, threadMainClosed,
+		threadTXRXRunning, threadTXRXClosed;
+	void VectorAudioMainLoop(void);
+	void VectorAudioTXRXLoop(void);
 
-	HWND hiddenWindow = NULL;
+	HWND hiddenWindowRDF = NULL;
+	HWND hiddenWindowAFV = NULL;
 
 	mutex messageLock; // Lock for the message queue
 	// Internal message quque
 	queue<set<string>> messages;
 
 	// Class for our window
-	WNDCLASS windowClass = {
+	WNDCLASS windowClassRDF = {
 	   NULL,
-	   HiddenWindow,
+	   HiddenWindowRDF,
 	   NULL,
 	   NULL,
 	   GetModuleHandle(NULL),
@@ -69,27 +74,47 @@ private:
 	   NULL,
 	   "RDFHiddenWindowClass"
 	};
+	WNDCLASS windowClassAFV = {
+	   NULL,
+	   HiddenWindowAFV,
+	   NULL,
+	   NULL,
+	   GetModuleHandle(NULL),
+	   NULL,
+	   NULL,
+	   NULL,
+	   NULL,
+	   "AfvBridgeHiddenWindowClass"
+	};
 
 	bool drawController;
 
 	void GetRGB(COLORREF& color, const char* settingValue);
 	void LoadSettings(void);
-	void ProcessMessageQueue(void);
+	void ProcessRDFQueue(void);
 
-	inline void DisplayEuroScopeDebugMessage(string msg) {
+	void UpdateVectorAudioChannels(string line, bool mode_tx);
+	void ToggleChannels(CGrountToAirChannel Channel, int tx = -1, int rx = -1);
+
+	inline void DisplayDebugMessage(string msg) {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
 	}
 
-	inline void DisplayEuroScopeMessage(string msg) {
+	inline void DisplayInfoMessage(string msg) {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
+	}
+
+	inline void DisplayWarnMessage(string msg) {
+		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
 	}
 
 public:
 	CRDFPlugin();
 	virtual ~CRDFPlugin();
-	void ProcessAFVMessage(string message);
+	void HiddenWndProcessRDFMessage(string message);
+	void HiddenWndProcessAFVMessage(string message);
 	virtual CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
 	virtual bool OnCompileCommand(const char* sCommandLine);
 
