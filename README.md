@@ -41,7 +41,7 @@ This table shows all configurable items.
 |HighPrecision|PRECISION H_____|[0, +inf)|0|
 |DrawControllers|CONTROLLER|0 or 1|0|
 
-For command line configurations, use ***".RDF KEYWORD VALUE"***, e.g. ***".RDF CTRGB 0:255:255"***. Replace "_____" with value in low/high altitude/precision directly, e.g. ***".RDF ALTITUDE L10000"***. All command line functions are case-insensitive. Command line settings will be saved to plugin settings file (defined in .prf file).
+For command line configurations, use `.RDF KEYWORD VALUE`, e.g. `.RDF CTRGB 0:255:255`. Replace "_____" with value in low/high altitude/precision directly, e.g. `.RDF ALTITUDE L10000`. All command line functions are case-insensitive. Command line settings will be saved to plugin settings file (defined in .prf file).
 
 In settings files the default is like the following:
 
@@ -66,14 +66,14 @@ END
 ```
 
 + **VectorAudioAddress** should include address and port only. E.g. 127.0.0.1:49080 or localhost:49080, etc.
-+ **VectorAudioTimeout** is in milliseconds. For *VectorAudio* HTTP requests.
-+ **VectorAudioPollInterval** is in milliseconds. For *VectorAudio* normal refresh.
-+ **VectorAudioRetryInterval** is in seconds. If the plugin disconnets from *VectorAudio*, it will attempt to re-establish connection every 5 seconds by default. This value is also used to update RX/TX channels.
++ **VectorAudioTimeout** is in milliseconds. For HTTP requests.
++ **VectorAudioPollInterval** is in milliseconds. For transmission inquiries.
++ **VectorAudioRetryInterval** is in seconds. For re-establishing connection and updating RX/TX channels.
 + **RGB, ConcurrentTransmissionRGB**, see [Previous README](#installation-and-previous-readme) below.
 + **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
 + **DrawControllers** is compatible with both *VectorAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be circled as well but without offset. 0 means OFF and other numeric value means ON.
 
-When EuroScope is running, you can reload settings in *Settings File Setup* and then enter ***".RDF RELOAD"*** (case-insensitive) in command line.
+When EuroScope is running, you can reload settings in *Settings File Setup* and then enter `.RDF RELOAD` (case-insensitive) in command line.
 
 ## Random Offset Schematic
 
@@ -91,12 +91,12 @@ When EuroScope is running, you can reload settings in *Settings File Setup* and 
     + Deprecates **Radius**. All circle radius is determined by precision.
     + If **HighPrecision > 0 and HighAltitude > LowAltitude**:
       + Overrides **Precision**. Dynamaic precision is implemented taking aircraft altitude into account.
-      + Precision (= radius) is linearly interpolated or extrapolated by altitude and low/high settings. *Precision = LowPrecision + (Altitude - LowAltitude) / (HighAltitude - LowAltitude) \* (HighPrecision - LowPrecision)*
+      + Precision (= radius) is linearly interpolated or extrapolated by altitude and low/high settings. `Precision = LowPrecision + (Altitude - LowAltitude) / (HighAltitude - LowAltitude) * (HighPrecision - LowPrecision)`
     + Otherwise **LowPrecision** precedes **Precision** when determining random offset.
 
 ## Known Issues
 
-+ EuroScope may crash when using TopSky at the same time with certain TopSky settings due to conflicting API method to communicate with *Audio for VATSIM standalone client*. Goto *TopSkySettings.txt* and add *RDF_Mode=-1* to prevent such cases.
++ EuroScope may crash when using TopSky at the same time with certain TopSky settings due to conflicting API method to communicate with *Audio for VATSIM standalone client*. Goto *TopSkySettings.txt* and add `RDF_Mode=-1` to prevent such cases.
 + Do not simultaneously load this plugin along with the older version of RDF, or with the original *afv-euroscope-bridge* plugin, which may cause unexpected behavior.
 + *Audio for VATSIM standalone client* doesn't provide callsign for RX/TX, so this plugin has to guess the corresponding callsign and it don't guarantee 100% correct toggles. But it shouldn't affect text receive and transmit function.
 + When using professional correlation mode (S or C) in EuroScope, it's possible some aircraft won't be radio-direction-found because the plugin doesn't know the callsign for an uncorrelated radar target.
