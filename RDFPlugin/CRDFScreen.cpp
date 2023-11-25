@@ -18,7 +18,7 @@ void CRDFScreen::OnAsrContentToBeClosed(void)
 
 void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 {
-	if (Phase != REFRESH_PHASE_AFTER_TAGS) return;
+	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
 	callsign_position drawPosition = rdfPlugin->activeTransmittingPilots;
 	if (drawPosition.empty()) {
 		drawPosition = rdfPlugin->previousActiveTransmittingPilots;
@@ -38,7 +38,7 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 			double drawR = callsignPos.second.radius;
 			// deal with drawing radius when threshold enabled
 			if (rdfPlugin->circleThreshold >= 0) {
-				CPosition posLD, posRU;
+				EuroScopePlugIn::CPosition posLD, posRU;
 				GetDisplayArea(&posLD, &posRU);
 				POINT pLD = ConvertCoordFromPositionToPixel(posLD);
 				POINT pRU = ConvertCoordFromPositionToPixel(posRU);
@@ -49,13 +49,13 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 				// draw circle
 				if (rdfPlugin->circleThreshold >= 0) {
 					// using position as boundary xy
-					CPosition pl = callsignPos.second.position;
+					EuroScopePlugIn::CPosition pl = callsignPos.second.position;
 					rdfPlugin->AddOffset(pl, 270, callsignPos.second.radius);
-					CPosition pt = callsignPos.second.position;
+					EuroScopePlugIn::CPosition pt = callsignPos.second.position;
 					rdfPlugin->AddOffset(pt, 0, callsignPos.second.radius);
-					CPosition pr = callsignPos.second.position;
+					EuroScopePlugIn::CPosition pr = callsignPos.second.position;
 					rdfPlugin->AddOffset(pr, 90, callsignPos.second.radius);
-					CPosition pb = callsignPos.second.position;
+					EuroScopePlugIn::CPosition pb = callsignPos.second.position;
 					rdfPlugin->AddOffset(pb, 180, callsignPos.second.radius);
 					Ellipse(hDC,
 						ConvertCoordFromPositionToPixel(pl).x,

@@ -15,19 +15,16 @@
 #include <atomic>
 #include "HiddenWindow.h"
 
-using namespace std;
-using namespace EuroScopePlugIn;
-
-const string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-const string MY_PLUGIN_VERSION = "1.3.4";
-const string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
-const string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
+const std::string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
+const std::string MY_PLUGIN_VERSION = "1.3.4";
+const std::string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
+const std::string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 
 typedef struct {
-	CPosition position;
+	EuroScopePlugIn::CPosition position;
 	double radius;
 } _draw_position;
-typedef map<string, _draw_position> callsign_position;
+typedef std::map<std::string, _draw_position> callsign_position;
 
 class CRDFPlugin : public EuroScopePlugIn::CPlugIn
 {
@@ -40,16 +37,16 @@ private:
 	int lowPrecision;
 	int highPrecision;
 
-	random_device randomDevice;
-	mt19937 rdGenerator;
-	uniform_real_distribution<> disBearing;
-	normal_distribution<> disDistance;
+	std::random_device randomDevice;
+	std::mt19937 rdGenerator;
+	std::uniform_real_distribution<> disBearing;
+	std::normal_distribution<> disDistance;
 
-	string addressVectorAudio;
+	std::string addressVectorAudio;
 	int connectionTimeout, pollInterval, retryInterval;
 	// thread controls
-	thread* threadVectorAudioMain, * threadVectorAudioTXRX;
-	atomic_bool threadMainRunning, threadMainClosed,
+	std::thread* threadVectorAudioMain, * threadVectorAudioTXRX;
+	std::atomic_bool threadMainRunning, threadMainClosed,
 		threadTXRXRunning, threadTXRXClosed;
 	void VectorAudioMainLoop(void);
 	void VectorAudioTXRXLoop(void);
@@ -57,9 +54,9 @@ private:
 	HWND hiddenWindowRDF = NULL;
 	HWND hiddenWindowAFV = NULL;
 
-	mutex messageLock; // Lock for the message queue
+	std::mutex messageLock; // Lock for the message queue
 	// Internal message quque
-	queue<set<string>> messages;
+	std::queue<std::set<std::string>> messages;
 
 	// Class for our window
 	WNDCLASS windowClassRDF = {
@@ -93,29 +90,29 @@ private:
 	void LoadSettings(void);
 	void ProcessRDFQueue(void);
 
-	void UpdateVectorAudioChannels(string line, bool mode_tx);
-	void ToggleChannels(CGrountToAirChannel Channel, int tx = -1, int rx = -1);
+	void UpdateVectorAudioChannels(std::string line, bool mode_tx);
+	void ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, int tx = -1, int rx = -1);
 
-	inline void DisplayDebugMessage(string msg) {
+	inline void DisplayDebugMessage(std::string msg) {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
 	}
 
-	inline void DisplayInfoMessage(string msg) {
+	inline void DisplayInfoMessage(std::string msg) {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
 	}
 
-	inline void DisplayWarnMessage(string msg) {
+	inline void DisplayWarnMessage(std::string msg) {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
 	}
 
 public:
 	CRDFPlugin();
 	virtual ~CRDFPlugin();
-	void HiddenWndProcessRDFMessage(string message);
-	void HiddenWndProcessAFVMessage(string message);
-	virtual CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
+	void HiddenWndProcessRDFMessage(std::string message);
+	void HiddenWndProcessAFVMessage(std::string message);
+	virtual EuroScopePlugIn::CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
 	virtual bool OnCompileCommand(const char* sCommandLine);
 
 	callsign_position activeTransmittingPilots;
@@ -124,7 +121,7 @@ public:
 	COLORREF rdfRGB, rdfConcurrentTransmissionRGB;
 	int circleThreshold;
 
-	void AddOffset(CPosition& position, double heading, double distance);
+	void AddOffset(EuroScopePlugIn::CPosition& position, double heading, double distance);
 
 };
 

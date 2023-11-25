@@ -4,10 +4,7 @@
 #include <map>
 #include "CRDFPlugin.h"
 
-using namespace std;
-using namespace EuroScopePlugIn;
-
-class CRDFScreen : public CRadarScreen
+class CRDFScreen : public EuroScopePlugIn::CRadarScreen
 {
 private:
 	CRDFPlugin* rdfPlugin;
