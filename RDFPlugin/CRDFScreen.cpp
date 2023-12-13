@@ -3,7 +3,7 @@
 
 CRDFScreen::CRDFScreen(CRDFPlugin* plugin)
 {
-	this->rdfPlugin = plugin;
+	rdfPlugin = plugin;
 }
 
 
@@ -19,10 +19,16 @@ void CRDFScreen::OnAsrContentToBeClosed(void)
 void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 {
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
+	//rdfPlugin->DisplayDebugMessage("refresh triggered");
 	callsign_position drawPosition = rdfPlugin->activeTransmittingPilots;
 	if (drawPosition.empty()) {
-		drawPosition = rdfPlugin->previousActiveTransmittingPilots;
-		if (drawPosition.empty() || !(GetKeyState(VK_MBUTTON) == -127 || GetKeyState(VK_MBUTTON) == -128)) {
+		if (GetAsyncKeyState(VK_MBUTTON)) {
+			drawPosition = rdfPlugin->previousActiveTransmittingPilots;
+			if (drawPosition.empty()) {
+				return;
+			}
+		}
+		else {
 			return;
 		}
 	}
@@ -87,6 +93,3 @@ bool CRDFScreen::PlaneIsVisible(POINT p, RECT radarArea)
 {
 	return p.x >= radarArea.left && p.x <= radarArea.right && p.y >= radarArea.top && p.y <= radarArea.bottom;
 }
-
-
-

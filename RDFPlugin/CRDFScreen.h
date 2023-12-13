@@ -1,7 +1,6 @@
 #pragma once
 
 #include "stdafx.h"
-#include <map>
 #include "CRDFPlugin.h"
 
 class CRDFScreen : public EuroScopePlugIn::CRadarScreen
@@ -19,4 +18,3 @@ public:
 	virtual void OnRefresh(HDC hDC, int Phase);
 
 };
-

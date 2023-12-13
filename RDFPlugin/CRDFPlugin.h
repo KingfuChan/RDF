@@ -1,22 +1,10 @@
 #pragma once
 
 #include "stdafx.h"
-#include <string>
-#include <chrono>
-#include <mutex>
-#include <set>
-#include <queue>
-#include <map>
-#include <random>
-#include <stdexcept>
-#include <sstream>
-#include <iostream>
-#include <thread>
-#include <atomic>
 #include "HiddenWindow.h"
 
 const std::string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-const std::string MY_PLUGIN_VERSION = "1.3.4";
+const std::string MY_PLUGIN_VERSION = "1.3.5";
 const std::string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
 const std::string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 
@@ -45,7 +33,7 @@ private:
 	std::string addressVectorAudio;
 	int connectionTimeout, pollInterval, retryInterval;
 	// thread controls
-	std::thread* threadVectorAudioMain, * threadVectorAudioTXRX;
+	std::unique_ptr<std::thread> threadVectorAudioMain, threadVectorAudioTXRX;
 	std::atomic_bool threadMainRunning, threadMainClosed,
 		threadTXRXRunning, threadTXRXClosed;
 	void VectorAudioMainLoop(void);
@@ -107,6 +95,8 @@ private:
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
 	}
 
+	friend class CRDFScreen;
+
 public:
 	CRDFPlugin();
 	virtual ~CRDFPlugin();
@@ -124,4 +114,3 @@ public:
 	void AddOffset(EuroScopePlugIn::CPosition& position, double heading, double distance);
 
 };
-

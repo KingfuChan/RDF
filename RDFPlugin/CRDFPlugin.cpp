@@ -42,8 +42,8 @@ CRDFPlugin::CRDFPlugin()
 		MY_PLUGIN_COPYRIGHT.c_str())
 {
 	// RDF window
-	RegisterClass(&this->windowClassRDF);
-	this->hiddenWindowRDF = CreateWindow(
+	RegisterClass(&windowClassRDF);
+	hiddenWindowRDF = CreateWindow(
 		"RDFHiddenWindowClass",
 		"RDFHiddenWindow",
 		NULL,
@@ -61,8 +61,8 @@ CRDFPlugin::CRDFPlugin()
 	}
 
 	// AFV bridge window
-	RegisterClass(&this->windowClassAFV);
-	this->hiddenWindowAFV = CreateWindow(
+	RegisterClass(&windowClassAFV);
+	hiddenWindowAFV = CreateWindow(
 		"AfvBridgeHiddenWindowClass",
 		"AfvBridgeHiddenWindow",
 		NULL,
@@ -81,16 +81,16 @@ CRDFPlugin::CRDFPlugin()
 
 	LoadSettings();
 
-	this->rdGenerator = std::mt19937(this->randomDevice());
-	this->disBearing = std::uniform_real_distribution<>(0.0, 360.0);
-	this->disDistance = std::normal_distribution<>(0, 1.0);
+	rdGenerator = std::mt19937(randomDevice());
+	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
+	disDistance = std::normal_distribution<>(0, 1.0);
 
 	DisplayInfoMessage(std::string("Version " + MY_PLUGIN_VERSION + " loaded"));
 
 	// detach thread for VectorAudio
-	threadVectorAudioMain = new std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
+	threadVectorAudioMain = std::make_unique<std::thread>(&CRDFPlugin::VectorAudioMainLoop, this);
 	threadVectorAudioMain->detach();
-	threadVectorAudioTXRX = new std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
+	threadVectorAudioTXRX = std::make_unique<std::thread>(&CRDFPlugin::VectorAudioTXRXLoop, this);
 	threadVectorAudioTXRX->detach();
 
 }
@@ -101,13 +101,13 @@ CRDFPlugin::~CRDFPlugin()
 	threadMainRunning = false;
 	threadTXRXRunning = false;
 
-	if (this->hiddenWindowRDF != NULL) {
-		DestroyWindow(this->hiddenWindowRDF);
+	if (hiddenWindowRDF != NULL) {
+		DestroyWindow(hiddenWindowRDF);
 	}
 	UnregisterClass("RDFHiddenWindowClass", NULL);
 
-	if (this->hiddenWindowAFV != NULL) {
-		DestroyWindow(this->hiddenWindowAFV);
+	if (hiddenWindowAFV != NULL) {
+		DestroyWindow(hiddenWindowAFV);
 	}
 	UnregisterClass("AfvBridgeHiddenWindowClass", NULL);
 
@@ -118,7 +118,7 @@ CRDFPlugin::~CRDFPlugin()
 void CRDFPlugin::HiddenWndProcessRDFMessage(std::string message)
 {
 	{
-		std::lock_guard<std::mutex> lock(this->messageLock);
+		std::lock_guard<std::mutex> lock(messageLock);
 		if (message.size()) {
 			DisplayDebugMessage(std::string("AFV message: ") + message);
 			std::set<std::string> strings;
@@ -127,10 +127,10 @@ void CRDFPlugin::HiddenWndProcessRDFMessage(std::string message)
 			while (std::getline(f, s, ':')) {
 				strings.insert(s);
 			}
-			this->messages.push(strings);
+			messages.push(strings);
 		}
 		else {
-			this->messages.push(std::set<std::string>());
+			messages.push(std::set<std::string>());
 		}
 	}
 	ProcessRDFQueue();
@@ -378,11 +378,11 @@ void CRDFPlugin::LoadSettings(void)
 
 void CRDFPlugin::ProcessRDFQueue(void)
 {
-	std::lock_guard<std::mutex> lock(this->messageLock);
+	std::lock_guard<std::mutex> lock(messageLock);
 	// Process all incoming messages
-	while (this->messages.size() > 0) {
-		std::set<std::string> amessage = this->messages.front();
-		this->messages.pop();
+	while (messages.size() > 0) {
+		std::set<std::string> amessage = messages.front();
+		messages.pop();
 
 		// remove existing records
 		for (auto itr = activeTransmittingPilots.begin(); itr != activeTransmittingPilots.end();) {
@@ -570,9 +570,9 @@ void CRDFPlugin::VectorAudioMainLoop(void)
 					continue;
 				}
 				{
-					std::lock_guard<std::mutex> lock(this->messageLock);
+					std::lock_guard<std::mutex> lock(messageLock);
 					if (!res->body.size()) {
-						this->messages.push(std::set<std::string>());
+						messages.push(std::set<std::string>());
 					}
 					else {
 						std::set<std::string> strings;
@@ -581,7 +581,7 @@ void CRDFPlugin::VectorAudioMainLoop(void)
 						while (getline(f, s, ',')) {
 							strings.insert(s);
 						}
-						this->messages.push(strings);
+						messages.push(strings);
 					}
 				}
 				ProcessRDFQueue();
