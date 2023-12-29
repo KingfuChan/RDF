@@ -12,6 +12,7 @@
 #include <windows.h>
 
 #include <string>
+#include <regex>
 #include <chrono>
 #include <mutex>
 #include <set>
@@ -19,8 +20,8 @@
 #include <map>
 #include <random>
 #include <stdexcept>
+#include <algorithm>
 #include <sstream>
-#include <iostream>
 #include <thread>
 #include <atomic>
 #include <memory>

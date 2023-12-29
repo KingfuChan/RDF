@@ -1,3 +1,5 @@
+#pragma once
+
 #include "stdafx.h"
 #include "CRDFScreen.h"
 
@@ -20,10 +22,10 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 {
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
 	//rdfPlugin->DisplayDebugMessage("refresh triggered");
-	callsign_position drawPosition = rdfPlugin->activeTransmittingPilots;
+	callsign_position drawPosition = rdfPlugin->activeStations;
 	if (drawPosition.empty()) {
 		if (GetAsyncKeyState(VK_MBUTTON)) {
-			drawPosition = rdfPlugin->previousActiveTransmittingPilots;
+			drawPosition = rdfPlugin->previousStations;
 			if (drawPosition.empty()) {
 				return;
 			}
@@ -34,7 +36,7 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 	}
 
 	HGDIOBJ oldBrush = SelectObject(hDC, GetStockObject(HOLLOW_BRUSH));
-	COLORREF penColor = drawPosition.size() > 1 ? rdfPlugin->rdfConcurrentTransmissionRGB : rdfPlugin->rdfRGB;
+	COLORREF penColor = drawPosition.size() > 1 ? rdfPlugin->rdfConcurRGB : rdfPlugin->rdfRGB;
 	HPEN hPen = CreatePen(PS_SOLID, 1, penColor);
 	HGDIOBJ oldPen = SelectObject(hDC, hPen);
 
@@ -89,7 +91,16 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 	DeleteObject(hPen);
 }
 
+bool CRDFScreen::OnCompileCommand(const char* sCommandLine)
+{
+	return rdfPlugin->ParseSharedSettings(sCommandLine, this);
+}
+
 bool CRDFScreen::PlaneIsVisible(POINT p, RECT radarArea)
 {
 	return p.x >= radarArea.left && p.x <= radarArea.right && p.y >= radarArea.top && p.y <= radarArea.bottom;
+}
+
+void CRDFScreen::LoadAsrSettings(void)
+{
 }
