@@ -17,10 +17,10 @@ inline bool FrequencyCompare(int freq1, int freq2) { // return true if same freq
 
 CRDFPlugin::CRDFPlugin()
 	: EuroScopePlugIn::CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
-		MY_PLUGIN_NAME.c_str(),
-		MY_PLUGIN_VERSION.c_str(),
-		MY_PLUGIN_DEVELOPER.c_str(),
-		MY_PLUGIN_COPYRIGHT.c_str())
+		MY_PLUGIN_NAME,
+		MY_PLUGIN_VERSION,
+		MY_PLUGIN_DEVELOPER,
+		MY_PLUGIN_COPYRIGHT)
 {
 	// RDF window
 	RegisterClass(&windowClassRDF);
@@ -66,7 +66,7 @@ CRDFPlugin::CRDFPlugin()
 	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
 	disDistance = std::normal_distribution<>(0, 1.0);
 
-	DisplayInfoMessage(std::string("Version " + MY_PLUGIN_VERSION + " loaded"));
+	DisplayInfoMessage(std::string("Version " + std::string(MY_PLUGIN_VERSION) + " loaded"));
 
 	// detach thread for VectorAudio
 	threadVectorAudioMain = std::make_unique<std::thread>(&CRDFPlugin::VectorAudioMainLoop, this);
@@ -96,7 +96,7 @@ CRDFPlugin::~CRDFPlugin()
 	threadTXRXClosed.wait(false);
 }
 
-void CRDFPlugin::HiddenWndProcessRDFMessage(std::string message)
+auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 {
 	{
 		std::lock_guard<std::mutex> lock(messageLock);
@@ -117,7 +117,7 @@ void CRDFPlugin::HiddenWndProcessRDFMessage(std::string message)
 	ProcessRDFQueue();
 }
 
-void CRDFPlugin::HiddenWndProcessAFVMessage(std::string message)
+auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 {
 	// functions as AFV bridge
 	if (!message.size()) return;
@@ -189,7 +189,7 @@ void CRDFPlugin::HiddenWndProcessAFVMessage(std::string message)
 	}
 }
 
-void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
+auto CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue) -> void
 {
 	unsigned int r, g, b;
 	sscanf_s(settingValue, "%u:%u:%u", &r, &g, &b);
@@ -199,7 +199,7 @@ void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
 	}
 }
 
-void CRDFPlugin::LoadSettings(void)
+auto CRDFPlugin::LoadSettings(void) -> void
 {
 	addressVectorAudio = "127.0.0.1:49080";
 	connectionTimeout = 300; // milliseconds, range: [100, 1000]
@@ -343,7 +343,7 @@ void CRDFPlugin::LoadSettings(void)
 	}
 }
 
-bool CRDFPlugin::ParseSharedSettings(const std::string& command, CRDFScreen* screen)
+auto CRDFPlugin::ParseSharedSettings(const std::string& command, CRDFScreen* screen) -> bool
 {
 	// deals with settings available for asr
 	std::smatch match;
@@ -392,26 +392,24 @@ bool CRDFPlugin::ParseSharedSettings(const std::string& command, CRDFScreen* scr
 				return true;
 			}
 		}
-		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &circleThreshold) == 1) {
+		int bufferThreshold;
+		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &bufferThreshold) == 1) {
+			circleThreshold = bufferThreshold;
 			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(circleThreshold).c_str());
 			return true;
 		}
-		int bufferPrecision;
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
-			if (bufferPrecision >= 0) {
-				circlePrecision = bufferPrecision;
-				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(circlePrecision).c_str());
-				return true;
-			}
-		}
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &lowAltitude) == 1) {
+		int bufferAltitude;
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &bufferAltitude) == 1) {
+			lowAltitude = bufferAltitude;
 			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(lowAltitude).c_str());
 			return true;
 		}
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &highAltitude) == 1) {
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &bufferAltitude) == 1) {
+			highAltitude = bufferAltitude;
 			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(highAltitude).c_str());
 			return true;
 		}
+		int bufferPrecision;
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
 				lowPrecision = bufferPrecision;
@@ -423,6 +421,13 @@ bool CRDFPlugin::ParseSharedSettings(const std::string& command, CRDFScreen* scr
 			if (bufferPrecision >= 0) {
 				highPrecision = bufferPrecision;
 				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(highPrecision).c_str());
+				return true;
+			}
+		}
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
+			if (bufferPrecision >= 0) {
+				circlePrecision = bufferPrecision;
+				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(circlePrecision).c_str());
 				return true;
 			}
 		}
@@ -440,7 +445,7 @@ bool CRDFPlugin::ParseSharedSettings(const std::string& command, CRDFScreen* scr
 	return false;
 }
 
-void CRDFPlugin::ProcessRDFQueue(void)
+auto CRDFPlugin::ProcessRDFQueue(void) -> void
 {
 	std::lock_guard<std::mutex> lock(messageLock);
 	// Process all incoming messages
@@ -504,7 +509,7 @@ void CRDFPlugin::ProcessRDFQueue(void)
 	}
 }
 
-void CRDFPlugin::UpdateVectorAudioChannels(std::string line, bool mode_tx)
+auto CRDFPlugin::UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void
 {
 	// parse message and returns number of total toggles
 	std::map<std::string, int> channelFreq;
@@ -566,7 +571,7 @@ void CRDFPlugin::UpdateVectorAudioChannels(std::string line, bool mode_tx)
 	}
 }
 
-void CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, int tx, int rx)
+auto CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx, const int& rx) -> void
 {
 	// pass tx/rx = -1 to skip
 	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
@@ -583,7 +588,7 @@ void CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, in
 	}
 }
 
-void CRDFPlugin::AddOffset(EuroScopePlugIn::CPosition& position, double heading, double distance)
+auto CRDFPlugin::AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void
 {
 	// from ES internal void CEuroScopeCoord :: Move ( double heading, double distance )
 	if (distance < 0.000001)
@@ -604,7 +609,7 @@ void CRDFPlugin::AddOffset(EuroScopePlugIn::CPosition& position, double heading,
 	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
 }
 
-void CRDFPlugin::VectorAudioMainLoop(void)
+auto CRDFPlugin::VectorAudioMainLoop(void) -> void
 {
 	threadMainRunning = true;
 	threadMainClosed = false;
@@ -663,7 +668,7 @@ void CRDFPlugin::VectorAudioMainLoop(void)
 	}
 }
 
-void CRDFPlugin::VectorAudioTXRXLoop(void)
+auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
 {
 	threadTXRXRunning = true;
 	threadTXRXClosed = false;
@@ -723,18 +728,19 @@ void CRDFPlugin::VectorAudioTXRXLoop(void)
 	}
 }
 
-EuroScopePlugIn::CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
+auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool NeedRadarContent,
 	bool GeoReferenced,
 	bool CanBeSaved,
 	bool CanBeCreated)
+	-> EuroScopePlugIn::CRadarScreen*
 {
 	DisplayInfoMessage(std::string("Radio Direction Finder plugin activated on ") + sDisplayName);
 
 	return new CRDFScreen(this);
 }
 
-bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
+auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 {
 	std::string cmd = sCommandLine;
 	std::smatch match; // all regular expressions will ignore cases

@@ -10,15 +10,15 @@ private:
 
 	CRDFPlugin* rdfPlugin;
 
-	bool PlaneIsVisible(POINT p, RECT radarArea);
-	void LoadAsrSettings(void);
+	auto PlaneIsVisible(const POINT& p, const RECT& radarArea) -> bool;
+	auto LoadAsrSettings(void) -> void;
 
 public:
 	CRDFScreen(CRDFPlugin* plugin);
-	virtual ~CRDFScreen();
+	~CRDFScreen();
 
-	virtual void OnAsrContentToBeClosed(void);
-	virtual void OnRefresh(HDC hDC, int Phase);
-	virtual bool OnCompileCommand(const char* sCommandLine);
+	virtual auto OnAsrContentToBeClosed(void) -> void;
+	virtual auto OnRefresh(HDC hDC, int Phase) -> void;
+	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;
 
 };

@@ -13,12 +13,12 @@ CRDFScreen::~CRDFScreen()
 {
 }
 
-void CRDFScreen::OnAsrContentToBeClosed(void)
+auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 {
 	delete this;
 }
 
-void CRDFScreen::OnRefresh(HDC hDC, int Phase)
+auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
 	//rdfPlugin->DisplayDebugMessage("refresh triggered");
@@ -91,16 +91,16 @@ void CRDFScreen::OnRefresh(HDC hDC, int Phase)
 	DeleteObject(hPen);
 }
 
-bool CRDFScreen::OnCompileCommand(const char* sCommandLine)
+auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 {
 	return rdfPlugin->ParseSharedSettings(sCommandLine, this);
 }
 
-bool CRDFScreen::PlaneIsVisible(POINT p, RECT radarArea)
+auto CRDFScreen::PlaneIsVisible(const POINT& p, const RECT& radarArea) -> bool
 {
 	return p.x >= radarArea.left && p.x <= radarArea.right && p.y >= radarArea.top && p.y <= radarArea.bottom;
 }
 
-void CRDFScreen::LoadAsrSettings(void)
+auto CRDFScreen::LoadAsrSettings(void) -> void
 {
 }

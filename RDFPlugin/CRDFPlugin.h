@@ -4,10 +4,10 @@
 #include "HiddenWindow.h"
 #include "CRDFScreen.h"
 
-const std::string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-const std::string MY_PLUGIN_VERSION = "1.3.5";
-const std::string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
-const std::string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
+constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
+constexpr auto MY_PLUGIN_VERSION = "1.3.5";
+constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
+constexpr auto MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 
 constexpr auto VECTORAUDIO_PARAM_VERSION = "/*";
 constexpr auto VECTORAUDIO_PARAM_TRANSMIT = "/transmitting";
@@ -42,14 +42,14 @@ private:
 
 	// drawing params
 	COLORREF rdfRGB, rdfConcurRGB;
-	int circleRadius;
-	int circlePrecision;
-	int circleThreshold;
-	int lowAltitude;
-	int highAltitude;
-	int lowPrecision;
-	int highPrecision;
-	bool drawController;
+	std::atomic_int circleRadius;
+	std::atomic_int circlePrecision;
+	std::atomic_int circleThreshold;
+	std::atomic_int lowAltitude;
+	std::atomic_int highAltitude;
+	std::atomic_int lowPrecision;
+	std::atomic_int highPrecision;
+	std::atomic_bool drawController;
 	// drawing records
 	callsign_position activeStations;
 	callsign_position previousStations;
@@ -67,8 +67,8 @@ private:
 	std::unique_ptr<std::thread> threadVectorAudioMain, threadVectorAudioTXRX;
 	std::atomic_bool threadMainRunning, threadMainClosed,
 		threadTXRXRunning, threadTXRXClosed;
-	void VectorAudioMainLoop(void);
-	void VectorAudioTXRXLoop(void);
+	auto VectorAudioMainLoop(void) -> void;
+	auto VectorAudioTXRXLoop(void) -> void;
 
 	// AFV standalone client controls
 	HWND hiddenWindowRDF = NULL;
@@ -101,36 +101,36 @@ private:
 	   "AfvBridgeHiddenWindowClass"
 	};
 
-	void AddOffset(EuroScopePlugIn::CPosition& position, double heading, double distance);
-	void GetRGB(COLORREF& color, const char* settingValue);
-	void LoadSettings(void);
-	bool ParseSharedSettings(const std::string& command, CRDFScreen* screen = nullptr);
-	void ProcessRDFQueue(void);
+	auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void;
+	auto GetRGB(COLORREF& color, const char* settingValue) -> void;
+	auto LoadSettings(void) -> void;
+	auto ParseSharedSettings(const std::string& command, CRDFScreen* screen = nullptr) -> bool;
+	auto ProcessRDFQueue(void) -> void;
 
-	void UpdateVectorAudioChannels(std::string line, bool mode_tx);
-	void ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, int tx = -1, int rx = -1);
+	auto UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void;
+	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
 
 	// messages
-	inline void DisplayDebugMessage(std::string msg) {
+	inline auto DisplayDebugMessage(const std::string& msg) -> void {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
-	}
+	};
 
-	inline void DisplayInfoMessage(std::string msg) {
+	inline auto DisplayInfoMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
 	}
 
-	inline void DisplayWarnMessage(std::string msg) {
+	inline auto DisplayWarnMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
 	}
 
 public:
 	CRDFPlugin();
-	virtual ~CRDFPlugin();
-	void HiddenWndProcessRDFMessage(std::string message);
-	void HiddenWndProcessAFVMessage(std::string message);
-	virtual EuroScopePlugIn::CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
-	virtual bool OnCompileCommand(const char* sCommandLine);
+	~CRDFPlugin();
+	auto HiddenWndProcessRDFMessage(const std::string& message) -> void;
+	auto HiddenWndProcessAFVMessage(const std::string& message) -> void;
+	virtual auto OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated) -> EuroScopePlugIn::CRadarScreen*;
+	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;
 
 };
