@@ -60,8 +60,9 @@ CRDFPlugin::CRDFPlugin()
 		DisplayWarnMessage("Unable to open communications for AFV bridge");
 	}
 
-	screenSettings[-1] = std::make_shared<_shared_settings>(); // initialize default settings
-	LoadGlobalSettings();
+	screenSettings[-1] = std::make_shared<draw_settings>(); // initialize default settings
+	LoadVectorAudioSettings();
+	LoadDrawingSettings();
 
 	rdGenerator = std::mt19937(randomDevice());
 	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
@@ -205,7 +206,7 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 	}
 }
 
-auto CRDFPlugin::LoadGlobalSettings(void) -> void
+auto CRDFPlugin::LoadVectorAudioSettings(void) -> void
 {
 	addressVectorAudio = "127.0.0.1:49080";
 	connectionTimeout = 300; // milliseconds, range: [100, 1000]
@@ -247,8 +248,6 @@ auto CRDFPlugin::LoadGlobalSettings(void) -> void
 				DisplayDebugMessage(std::string("Retry interval: ") + std::to_string(retryInterval));
 			}
 		}
-
-		LoadSharedSettings();
 	}
 	catch (std::runtime_error const& e)
 	{
@@ -260,7 +259,7 @@ auto CRDFPlugin::LoadGlobalSettings(void) -> void
 	}
 }
 
-auto CRDFPlugin::LoadSharedSettings(const int& screenID) -> void
+auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 {
 	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
 	// Schematic: high altitude/precision optional. low altitude used for filtering regardless of others
@@ -268,6 +267,7 @@ auto CRDFPlugin::LoadSharedSettings(const int& screenID) -> void
 	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
 	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
 
+	DisplayDebugMessage(std::format("Loading drawing settings ID {}", screenID));
 	auto GetSetting = [&](const auto& varName) -> std::string {
 		if (screenID != -1) {
 			auto ds = screenVec[screenID]->GetDataFromAsr(varName);
@@ -283,13 +283,14 @@ auto CRDFPlugin::LoadSharedSettings(const int& screenID) -> void
 	{
 		std::unique_lock<std::shared_mutex> lock(screenLock);
 		// initialize settings
-		std::shared_ptr<_shared_settings> targetSetting;;
+		std::shared_ptr<draw_settings> targetSetting;;
 		auto itrSetting = screenSettings.find(screenID);
 		if (itrSetting != screenSettings.end()) { // use existing
 			targetSetting = itrSetting->second;
 		}
 		else { // create new based on plugin setting
-			targetSetting = std::make_shared<_shared_settings>(*screenSettings[-1]);
+			DisplayDebugMessage("Inserting new settings");
+			targetSetting = std::make_shared<draw_settings>(*screenSettings[-1]);
 			screenSettings.insert({ screenID, targetSetting });
 		}
 
@@ -394,7 +395,7 @@ auto CRDFPlugin::ParseSharedSettings(const std::string& command, const int& scre
 	try
 	{
 		std::unique_lock < std::shared_mutex> lock(screenLock);
-		std::shared_ptr<_shared_settings> targetSetting = screenSettings[screenID];
+		std::shared_ptr<draw_settings> targetSetting = screenSettings[screenID];
 		std::smatch match;
 		std::regex rxRGB("^.RDF (RGB|CTRGB) (\\S+)$", std::regex_constants::icase);
 		if (regex_match(command, match, rxRGB)) {
@@ -511,14 +512,14 @@ auto CRDFPlugin::ProcessRDFQueue(void) -> void
 				radarTarget = RadarTargetSelect(callsign_dump.c_str());
 			}
 			std::shared_lock<std::shared_mutex> lockSettings(screenLock);
-			int circleRadius = GetDrawingParam()->circleRadius;
-			int circlePrecision = GetDrawingParam()->circlePrecision;
-			int circleThreshold = GetDrawingParam()->circleThreshold;
-			int lowAltitude = GetDrawingParam()->lowAltitude;
-			int highAltitude = GetDrawingParam()->highAltitude;
-			int lowPrecision = GetDrawingParam()->lowPrecision;
-			int highPrecision = GetDrawingParam()->highPrecision;
-			bool drawController = GetDrawingParam()->drawController;
+			int circleRadius = screenSettings[activeScreenID]->circleRadius;
+			int circlePrecision = screenSettings[activeScreenID]->circlePrecision;
+			int circleThreshold = screenSettings[activeScreenID]->circleThreshold;
+			int lowAltitude = screenSettings[activeScreenID]->lowAltitude;
+			int highAltitude = screenSettings[activeScreenID]->highAltitude;
+			int lowPrecision = screenSettings[activeScreenID]->lowPrecision;
+			int highPrecision = screenSettings[activeScreenID]->highPrecision;
+			bool drawController = screenSettings[activeScreenID]->drawController;
 			if (radarTarget.IsValid()) {
 				int alt = radarTarget.GetPosition().GetPressureAltitude();
 				if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
@@ -655,13 +656,14 @@ auto CRDFPlugin::AddOffset(EuroScopePlugIn::CPosition& position, const double& h
 	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
 }
 
-auto CRDFPlugin::GetDrawingParam(void) -> std::shared_ptr<_shared_settings>
+auto CRDFPlugin::GetDrawingParam(void) -> std::shared_ptr<draw_settings>
 {
 	try {
-		return screenSettings.at(activeScreenID);
+		int id = activeScreenID;
+		return screenSettings.at(id);
 	}
 	catch (...) {
-		return std::make_shared<_shared_settings>();
+		return std::make_shared<draw_settings>();
 	}
 }
 
@@ -795,7 +797,6 @@ auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	DisplayInfoMessage(std::format("Radio Direction Finder plugin activated on {}", sDisplayName));
 	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(i);
 	screenVec.push_back(screen);
-	LoadSharedSettings(i);
 	DisplayDebugMessage(std::format("Screen created: ID {}, type {}", i, sDisplayName));
 	return screen.get();
 }
@@ -808,7 +809,10 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 	{
 		std::regex rxReload("^.RDF RELOAD$", std::regex_constants::icase);
 		if (regex_match(cmd, match, rxReload)) {
-			LoadGlobalSettings();
+			LoadVectorAudioSettings();
+			LoadDrawingSettings(-1);
+
+			// TODO: reset screenSettings and other stuff
 			return true;
 		}
 		std::regex rxAddress("^.RDF ADDRESS (\\S+)$", std::regex_constants::icase);

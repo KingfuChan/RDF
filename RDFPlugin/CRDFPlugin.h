@@ -45,7 +45,7 @@ typedef struct __draw_position {
 } _draw_position;
 typedef std::map<std::string, _draw_position> callsign_position;
 
-typedef struct __shared_settings {
+typedef struct __draw_settings {
 	COLORREF rdfRGB;
 	COLORREF rdfConcurRGB;
 	int circleRadius;
@@ -57,7 +57,7 @@ typedef struct __shared_settings {
 	int highPrecision;
 	bool drawController;
 
-	__shared_settings(void) :
+	__draw_settings(void) :
 		rdfRGB((255, 255, 255)), // Default: white
 		rdfConcurRGB((255, 0, 0)), // Default: red
 		circleRadius(20), // Default: 20 (nautical miles or pixel), range: (0, +inf)
@@ -69,7 +69,7 @@ typedef struct __shared_settings {
 		highPrecision(0), // Default: 0 (nautical miles), range: [0, +inf)
 		drawController(false)
 	{};
-} _shared_settings;
+} draw_settings;
 
 class CRDFPlugin : public EuroScopePlugIn::CPlugIn
 {
@@ -78,10 +78,10 @@ private:
 
 	// screen controls and drawing params
 	std::vector<std::shared_ptr<CRDFScreen>> screenVec; // index is screen ID (incremental int)
-	std::map<int, std::shared_ptr<_shared_settings>> screenSettings; // screeID -> settings, ID=-1 used as plugin setting
+	std::map<int, std::shared_ptr<draw_settings>> screenSettings; // screeID -> settings, ID=-1 used as plugin setting
 	std::atomic_int activeScreenID;
 	std::shared_mutex screenLock;
-	auto GetDrawingParam(void) -> std::shared_ptr<_shared_settings>;
+	auto GetDrawingParam(void) -> std::shared_ptr<draw_settings>;
 
 	// drawing records
 	callsign_position activeStations;
@@ -136,8 +136,8 @@ private:
 
 	auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void;
 	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
-	auto LoadGlobalSettings(void) -> void;
-	auto LoadSharedSettings(const int& screenID = -1) -> void;
+	auto LoadVectorAudioSettings(void) -> void;
+	auto LoadDrawingSettings(const int& screenID = -1) -> void;
 	auto ParseSharedSettings(const std::string& command, const int& screenID = -1) -> bool;
 	auto ProcessRDFQueue(void) -> void;
 

@@ -12,6 +12,13 @@ CRDFScreen::~CRDFScreen()
 {
 }
 
+auto CRDFScreen::OnAsrContentLoaded(bool Loaded) -> void
+{
+	if (Loaded) { // ASR load finished
+		GetRDFPlugin()->LoadDrawingSettings(m_ID);
+	}
+}
+
 auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 {
 }
@@ -20,7 +27,6 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
 	if (Phase == EuroScopePlugIn::REFRESH_PHASE_BACK_BITMAP) {
 		GetRDFPlugin()->activeScreenID = m_ID;
-		GetRDFPlugin()->DisplayDebugMessage("Refreshing with ASR settings");
 		return;
 	}
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
@@ -38,9 +44,9 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 		}
 	}
 
-	auto paramsPtr = GetRDFPlugin()->GetDrawingParam();
+	draw_settings paramsPtr = *GetRDFPlugin()->GetDrawingParam();
 	HGDIOBJ oldBrush = SelectObject(hDC, GetStockObject(HOLLOW_BRUSH));
-	COLORREF penColor = drawPosition.size() > 1 ? paramsPtr->rdfConcurRGB : paramsPtr->rdfRGB;
+	COLORREF penColor = drawPosition.size() > 1 ? paramsPtr.rdfConcurRGB : paramsPtr.rdfRGB;
 	HPEN hPen = CreatePen(PS_SOLID, 1, penColor);
 	HGDIOBJ oldPen = SelectObject(hDC, hPen);
 
@@ -49,7 +55,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 		if (PlaneIsVisible(pPos, GetRadarArea())) {
 			double drawR = callsignPos.second.radius;
 			// deal with drawing radius when threshold enabled
-			if (paramsPtr->circleThreshold >= 0) {
+			if (paramsPtr.circleThreshold >= 0) {
 				EuroScopePlugIn::CPosition posLD, posRU;
 				GetDisplayArea(&posLD, &posRU);
 				POINT pLD = ConvertCoordFromPositionToPixel(posLD);
@@ -57,9 +63,9 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 				double dst = sqrt(pow(pRU.x - pLD.x, 2) + pow(pRU.y - pLD.y, 2));
 				drawR = drawR * dst / posLD.DistanceTo(posRU);
 			}
-			if (drawR >= (double)paramsPtr->circleThreshold) {
+			if (drawR >= (double)paramsPtr.circleThreshold) {
 				// draw circle
-				if (paramsPtr->circleThreshold >= 0) {
+				if (paramsPtr.circleThreshold >= 0) {
 					// using position as boundary xy
 					EuroScopePlugIn::CPosition pl = callsignPos.second.position;
 					GetRDFPlugin()->AddOffset(pl, 270, callsignPos.second.radius);
@@ -97,8 +103,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 
 auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 {
-	bool res = GetRDFPlugin()->ParseSharedSettings(sCommandLine, m_ID);
-	return res;
+	return GetRDFPlugin()->ParseSharedSettings(sCommandLine, m_ID);
 }
 
 auto CRDFScreen::GetRDFPlugin(void) -> CRDFPlugin*
