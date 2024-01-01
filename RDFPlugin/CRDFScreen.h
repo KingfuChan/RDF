@@ -8,14 +8,14 @@ class CRDFScreen : public EuroScopePlugIn::CRadarScreen
 private:
 	friend class CRDFPlugin;
 
-	CRDFPlugin* rdfPlugin;
+	int m_ID;
 
+	inline auto GetRDFPlugin(void) -> CRDFPlugin*;
 	auto PlaneIsVisible(const POINT& p, const RECT& radarArea) -> bool;
-	auto LoadAsrSettings(void) -> void;
 
 public:
-	CRDFScreen(CRDFPlugin* plugin);
-	~CRDFScreen();
+	CRDFScreen(const int& ID);
+	~CRDFScreen(void);
 
 	virtual auto OnAsrContentToBeClosed(void) -> void;
 	virtual auto OnRefresh(HDC hDC, int Phase) -> void;

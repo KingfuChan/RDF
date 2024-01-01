@@ -5,13 +5,13 @@
 
 const double pi = 3.141592653589793;
 const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuroScopeCoord
-constexpr double GEOM_RAD_FROM_DEG(double deg) { return deg * pi / 180.0; };
-constexpr double GEOM_DEG_FROM_RAD(double rad) { return rad / pi * 180.0; };
+static constexpr double GEOM_RAD_FROM_DEG(double deg) { return deg * pi / 180.0; };
+static constexpr double GEOM_DEG_FROM_RAD(double rad) { return rad / pi * 180.0; };
 
-inline int FrequencyConvert(double freq) { // frequency * 1000 => int
+inline static int FrequencyConvert(double freq) { // frequency * 1000 => int
 	return round(freq * 1000.0);
 }
-inline bool FrequencyCompare(int freq1, int freq2) { // return true if same frequency, frequency *= 1000
+inline static bool FrequencyCompare(int freq1, int freq2) { // return true if same frequency, frequency *= 1000
 	return abs(freq1 - freq2) <= 10;
 }
 
@@ -60,7 +60,8 @@ CRDFPlugin::CRDFPlugin()
 		DisplayWarnMessage("Unable to open communications for AFV bridge");
 	}
 
-	LoadSettings();
+	screenSettings[-1] = std::make_shared<_shared_settings>(); // initialize default settings
+	LoadGlobalSettings();
 
 	rdGenerator = std::mt19937(randomDevice());
 	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
@@ -82,15 +83,15 @@ CRDFPlugin::~CRDFPlugin()
 	threadMainRunning = false;
 	threadTXRXRunning = false;
 
-	if (hiddenWindowRDF != NULL) {
+	if (hiddenWindowRDF != nullptr) {
 		DestroyWindow(hiddenWindowRDF);
 	}
-	UnregisterClass("RDFHiddenWindowClass", NULL);
+	UnregisterClass("RDFHiddenWindowClass", nullptr);
 
-	if (hiddenWindowAFV != NULL) {
+	if (hiddenWindowAFV != nullptr) {
 		DestroyWindow(hiddenWindowAFV);
 	}
-	UnregisterClass("AfvBridgeHiddenWindowClass", NULL);
+	UnregisterClass("AfvBridgeHiddenWindowClass", nullptr);
 
 	threadMainClosed.wait(false);
 	threadTXRXClosed.wait(false);
@@ -189,50 +190,38 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	}
 }
 
-auto CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue) -> void
+auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> void
 {
-	unsigned int r, g, b;
-	sscanf_s(settingValue, "%u:%u:%u", &r, &g, &b);
-	if (r <= 255 && g <= 255 && b <= 255) {
-		DisplayDebugMessage(std::string("R: ") + std::to_string(r) + std::string(" G: ") + std::to_string(g) + std::string(" B: ") + std::to_string(b));
-		color = RGB(r, g, b);
+	std::regex rxRGB(R"(^(\d{1,3}):(\d{1,3}):(\d{1,3})$)");
+	std::smatch match;
+	if (std::regex_match(settingValue, match, rxRGB)) {
+		UINT r = std::stoi(match[1].str());
+		UINT g = std::stoi(match[2].str());
+		UINT b = std::stoi(match[3].str());
+		if (r <= 255 && g <= 255 && b <= 255) {
+			DisplayDebugMessage(std::format("R:{} G:{} B:{}", r, g, b));
+			color = RGB(r, g, b);
+		}
 	}
 }
 
-auto CRDFPlugin::LoadSettings(void) -> void
+auto CRDFPlugin::LoadGlobalSettings(void) -> void
 {
 	addressVectorAudio = "127.0.0.1:49080";
 	connectionTimeout = 300; // milliseconds, range: [100, 1000]
 	pollInterval = 200; // milliseconds, range: [100, +inf)
 	retryInterval = 5; // seconds, range: [1, +inf)
 
-	rdfRGB = RGB(255, 255, 255);	// Default: white
-	rdfConcurRGB = RGB(255, 0, 0);	// Default: red
-
-	circleRadius = 20; // Default: 20 (nautical miles or pixel), range: (0, +inf)
-	circleThreshold = -1; // Default: -1 (always use pixel)
-	circlePrecision = 0; // Default: no offset (nautical miles), range: [0, +inf)
-	lowAltitude = 0; // Default: 0 (feet)
-	lowPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
-	highAltitude = 0; // Default: 0 (feet)
-	highPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
-	// Schematic: high altitude/precision optional. low altitude used for filtering regardless of others
-	// threshold < 0 will use circleRadius in pixel, circlePrecision for offset, low/high settings ignored
-	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
-	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
-
-	drawController = false;
-
 	try
 	{
 		const char* cstrAddrVA = GetDataFromSettings(SETTING_VECTORAUDIO_ADDRESS);
-		if (cstrAddrVA != NULL)
+		if (cstrAddrVA != nullptr)
 		{
 			addressVectorAudio = cstrAddrVA;
 			DisplayDebugMessage(std::string("Address: ") + addressVectorAudio);
 		}
 		const char* cstrTimeout = GetDataFromSettings(SETTING_VECTORAUDIO_TIMEOUT);
-		if (cstrTimeout != NULL)
+		if (cstrTimeout != nullptr)
 		{
 			int parsedTimeout = atoi(cstrTimeout);
 			if (parsedTimeout >= 100 && parsedTimeout <= 1000) {
@@ -241,7 +230,7 @@ auto CRDFPlugin::LoadSettings(void) -> void
 			}
 		}
 		const char* cstrPollInterval = GetDataFromSettings(SETTING_VECTORAUDIO_POLL_INTERVAL);
-		if (cstrPollInterval != NULL)
+		if (cstrPollInterval != nullptr)
 		{
 			int parsedInterval = atoi(cstrPollInterval);
 			if (parsedInterval >= 100) {
@@ -250,7 +239,7 @@ auto CRDFPlugin::LoadSettings(void) -> void
 			}
 		}
 		const char* cstrRetryInterval = GetDataFromSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL);
-		if (cstrRetryInterval != NULL)
+		if (cstrRetryInterval != nullptr)
 		{
 			int parsedInterval = atoi(cstrRetryInterval);
 			if (parsedInterval >= 1) {
@@ -258,79 +247,124 @@ auto CRDFPlugin::LoadSettings(void) -> void
 				DisplayDebugMessage(std::string("Retry interval: ") + std::to_string(retryInterval));
 			}
 		}
-		const char* cstrRGB = GetDataFromSettings(SETTING_RGB);
-		if (cstrRGB != NULL)
-		{
-			GetRGB(rdfRGB, cstrRGB);
+
+		LoadSharedSettings();
+	}
+	catch (std::runtime_error const& e)
+	{
+		DisplayWarnMessage(std::string("Error: ") + e.what());
+	}
+	catch (...)
+	{
+		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
+	}
+}
+
+auto CRDFPlugin::LoadSharedSettings(const int& screenID) -> void
+{
+	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
+	// Schematic: high altitude/precision optional. low altitude used for filtering regardless of others
+	// threshold < 0 will use circleRadius in pixel, circlePrecision for offset, low/high settings ignored
+	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
+	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
+
+	auto GetSetting = [&](const auto& varName) -> std::string {
+		if (screenID != -1) {
+			auto ds = screenVec[screenID]->GetDataFromAsr(varName);
+			if (ds != nullptr) {
+				return ds;
+			}
+		} // fallback onto plugin setting
+		auto d = GetDataFromSettings(varName);
+		return d == nullptr ? "" : d;
+		};
+
+	try
+	{
+		std::unique_lock<std::shared_mutex> lock(screenLock);
+		// initialize settings
+		std::shared_ptr<_shared_settings> targetSetting;;
+		auto itrSetting = screenSettings.find(screenID);
+		if (itrSetting != screenSettings.end()) { // use existing
+			targetSetting = itrSetting->second;
 		}
-		cstrRGB = GetDataFromSettings(SETTING_CONCURRENT_RGB);
-		if (cstrRGB != NULL)
-		{
-			GetRGB(rdfConcurRGB, cstrRGB);
+		else { // create new based on plugin setting
+			targetSetting = std::make_shared<_shared_settings>(*screenSettings[-1]);
+			screenSettings.insert({ screenID, targetSetting });
 		}
-		const char* cstrRadius = GetDataFromSettings(SETTING_CIRCLE_RADIUS);
-		if (cstrRadius != NULL)
+
+		auto cstrRGB = GetSetting(SETTING_RGB);
+		if (cstrRGB.size())
 		{
-			int parsedRadius = atoi(cstrRadius);
+			GetRGB(targetSetting->rdfRGB, cstrRGB);
+		}
+		cstrRGB = GetSetting(SETTING_CONCURRENT_RGB);
+		if (cstrRGB.size())
+		{
+			GetRGB(targetSetting->rdfConcurRGB, cstrRGB);
+		}
+		auto cstrRadius = GetSetting(SETTING_CIRCLE_RADIUS);
+		if (cstrRadius.size())
+		{
+			int parsedRadius = std::stoi(cstrRadius);
 			if (parsedRadius > 0) {
-				circleRadius = parsedRadius;
-				DisplayDebugMessage(std::string("Radius: ") + std::to_string(circleRadius));
+				targetSetting->circleRadius = parsedRadius;
+				DisplayDebugMessage(std::format("Radius: {}, Load ID: {}", targetSetting->circleRadius, screenID));
 			}
 		}
-		const char* cstrThreshold = GetDataFromSettings(SETTING_THRESHOLD);
-		if (cstrThreshold != NULL)
+		auto cstrThreshold = GetSetting(SETTING_THRESHOLD);
+		if (cstrThreshold.size())
 		{
-			circleThreshold = atoi(cstrThreshold);
-			DisplayDebugMessage(std::string("Threshold: ") + std::to_string(circleThreshold));
+			targetSetting->circleThreshold = std::stoi(cstrThreshold);
+			DisplayDebugMessage(std::format("Threshold: {}, Load ID: {}", targetSetting->circleThreshold, screenID));
 		}
-		const char* cstrPrecision = GetDataFromSettings(SETTING_PRECISION);
-		if (cstrPrecision != NULL)
+		auto cstrPrecision = GetSetting(SETTING_PRECISION);
+		if (cstrPrecision.size())
 		{
-			int parsedPrecision = atoi(cstrPrecision);
+			int parsedPrecision = std::stoi(cstrPrecision);
 			if (parsedPrecision >= 0) {
-				circlePrecision = parsedPrecision;
-				DisplayDebugMessage(std::string("Precision: ") + std::to_string(circlePrecision));
+				targetSetting->circlePrecision = parsedPrecision;
+				DisplayDebugMessage(std::format("Precision: {}, Load ID: {}", targetSetting->circlePrecision, screenID));
 			}
 		}
-		const char* cstrLowAlt = GetDataFromSettings(SETTING_LOW_ALTITUDE);
-		if (cstrLowAlt != NULL)
+		auto cstrLowAlt = GetSetting(SETTING_LOW_ALTITUDE);
+		if (cstrLowAlt.size())
 		{
-			int parsedAlt = atoi(cstrLowAlt);
-			lowAltitude = parsedAlt;
-			DisplayDebugMessage(std::string("Low Altitude: ") + std::to_string(lowAltitude));
+			targetSetting->lowAltitude = std::stoi(cstrLowAlt);
+			DisplayDebugMessage(std::format("Low Altitude: {}, Load ID: {}", targetSetting->lowAltitude, screenID));
 		}
-		const char* cstrHighAlt = GetDataFromSettings(SETTING_HIGH_ALTITUDE);
-		if (cstrHighAlt != NULL)
+		auto cstrHighAlt = GetSetting(SETTING_HIGH_ALTITUDE);
+		if (cstrHighAlt.size())
 		{
-			int parsedAlt = atoi(cstrHighAlt);
+			int parsedAlt = std::stoi(cstrHighAlt);
 			if (parsedAlt > 0) {
-				highAltitude = parsedAlt;
-				DisplayDebugMessage(std::string("High Altitude: ") + std::to_string(highAltitude));
+				targetSetting->highAltitude = parsedAlt;
+				DisplayDebugMessage(std::format("High Altitude: {}, Load ID: {}", targetSetting->highAltitude, screenID));
 			}
 		}
-		const char* cstrLowPrecision = GetDataFromSettings(SETTING_LOW_PRECISION);
-		if (cstrLowPrecision != NULL)
+		auto cstrLowPrecision = GetSetting(SETTING_LOW_PRECISION);
+		if (cstrLowPrecision.size())
 		{
-			int parsedPrecision = atoi(cstrLowPrecision);
+			int parsedPrecision = std::stoi(cstrLowPrecision);
 			if (parsedPrecision >= 0) {
-				lowPrecision = parsedPrecision;
-				DisplayDebugMessage(std::string("Low Precision: ") + std::to_string(lowPrecision));
+				targetSetting->lowPrecision = parsedPrecision;
+				DisplayDebugMessage(std::format("Low Precision: {}, Load ID: {}", targetSetting->lowPrecision, screenID));
 			}
 		}
-		const char* cstrHighPrecision = GetDataFromSettings(SETTING_HIGH_PRECISION);
-		if (cstrHighPrecision != NULL)
+		auto cstrHighPrecision = GetSetting(SETTING_HIGH_PRECISION);
+		if (cstrHighPrecision.size())
 		{
-			int parsedPrecision = atoi(cstrHighPrecision);
+			int parsedPrecision = std::stoi(cstrHighPrecision);
 			if (parsedPrecision >= 0) {
-				highPrecision = parsedPrecision;
-				DisplayDebugMessage(std::string("High Precision: ") + std::to_string(highPrecision));
+				targetSetting->highPrecision = parsedPrecision;
+				DisplayDebugMessage(std::format("High Precision: {}, Load ID: {}", targetSetting->highPrecision, screenID));
 			}
 		}
-		const char* cstrController = GetDataFromSettings(SETTING_DRAW_CONTROLLERS);
-		if (cstrController != NULL)
+		auto cstrController = GetSetting(SETTING_DRAW_CONTROLLERS);
+		if (cstrController.size())
 		{
-			drawController = (bool)atoi(cstrController);
-			DisplayDebugMessage(std::string("Draw controllers and observers: ") + std::to_string(drawController));
+			targetSetting->drawController = (bool)std::stoi(cstrController);
+			DisplayDebugMessage(std::format("Draw controllers: {}, Load ID: {}", targetSetting->drawController, screenID));
 		}
 	}
 	catch (std::runtime_error const& e)
@@ -343,13 +377,13 @@ auto CRDFPlugin::LoadSettings(void) -> void
 	}
 }
 
-auto CRDFPlugin::ParseSharedSettings(const std::string& command, CRDFScreen* screen) -> bool
+auto CRDFPlugin::ParseSharedSettings(const std::string& command, const int& screenID) -> bool
 {
+	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
 	// deals with settings available for asr
-	std::smatch match;
-	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) {
-		if (screen != nullptr) {
-			screen->SaveDataToAsr(varName, varDescr, val);
+	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
+		if (screenID != -1) {
+			screenVec[screenID]->SaveDataToAsr(varName, varDescr, val);
 			DisplayInfoMessage(std::string(varDescr) + ": " + std::string(val) + " (ASR)");
 		}
 		else {
@@ -359,23 +393,26 @@ auto CRDFPlugin::ParseSharedSettings(const std::string& command, CRDFScreen* scr
 		};
 	try
 	{
+		std::unique_lock < std::shared_mutex> lock(screenLock);
+		std::shared_ptr<_shared_settings> targetSetting = screenSettings[screenID];
+		std::smatch match;
 		std::regex rxRGB("^.RDF (RGB|CTRGB) (\\S+)$", std::regex_constants::icase);
 		if (regex_match(command, match, rxRGB)) {
 			auto bufferMode = match[1].str();
 			auto bufferRGB = match[2].str();
 			std::transform(bufferMode.begin(), bufferMode.end(), bufferMode.begin(), ::toupper);
 			if (bufferMode == "RGB") {
-				COLORREF prevRGB = rdfRGB;
-				GetRGB(rdfRGB, bufferRGB.c_str());
-				if (rdfRGB != prevRGB) {
+				COLORREF prevRGB = targetSetting->rdfRGB;
+				GetRGB(targetSetting->rdfRGB, bufferRGB);
+				if (targetSetting->rdfRGB != prevRGB) {
 					SaveSetting(SETTING_RGB, "RGB", bufferRGB.c_str());
 					return true;
 				}
 			}
 			else {
-				COLORREF prevRGB = rdfConcurRGB;
-				GetRGB(rdfConcurRGB, bufferRGB.c_str());
-				if (rdfConcurRGB != prevRGB) {
+				COLORREF prevRGB = targetSetting->rdfConcurRGB;
+				GetRGB(targetSetting->rdfConcurRGB, bufferRGB);
+				if (targetSetting->rdfConcurRGB != prevRGB) {
 					SaveSetting(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB.c_str());
 					return true;
 				}
@@ -387,53 +424,53 @@ auto CRDFPlugin::ParseSharedSettings(const std::string& command, CRDFScreen* scr
 		int bufferRadius;
 		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
 			if (bufferRadius > 0) {
-				circleRadius = bufferRadius;
-				SaveSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(circleRadius).c_str());
+				targetSetting->circleRadius = bufferRadius;
+				SaveSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(targetSetting->circleRadius).c_str());
 				return true;
 			}
 		}
 		int bufferThreshold;
 		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &bufferThreshold) == 1) {
-			circleThreshold = bufferThreshold;
-			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(circleThreshold).c_str());
+			targetSetting->circleThreshold = bufferThreshold;
+			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(targetSetting->circleThreshold).c_str());
 			return true;
 		}
 		int bufferAltitude;
 		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &bufferAltitude) == 1) {
-			lowAltitude = bufferAltitude;
-			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(lowAltitude).c_str());
+			targetSetting->lowAltitude = bufferAltitude;
+			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(targetSetting->lowAltitude).c_str());
 			return true;
 		}
 		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &bufferAltitude) == 1) {
-			highAltitude = bufferAltitude;
-			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(highAltitude).c_str());
+			targetSetting->highAltitude = bufferAltitude;
+			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(targetSetting->highAltitude).c_str());
 			return true;
 		}
 		int bufferPrecision;
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				lowPrecision = bufferPrecision;
-				SaveSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(lowPrecision).c_str());
+				targetSetting->lowPrecision = bufferPrecision;
+				SaveSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(targetSetting->lowPrecision).c_str());
 				return true;
 			}
 		}
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				highPrecision = bufferPrecision;
-				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(highPrecision).c_str());
+				targetSetting->highPrecision = bufferPrecision;
+				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(targetSetting->highPrecision).c_str());
 				return true;
 			}
 		}
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				circlePrecision = bufferPrecision;
-				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(circlePrecision).c_str());
+				targetSetting->circlePrecision = bufferPrecision;
+				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(targetSetting->circlePrecision).c_str());
 				return true;
 			}
 		}
 		int bufferCtrl;
 		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
-			drawController = bufferCtrl;
+			targetSetting->drawController = bufferCtrl;
 			SaveSetting(SETTING_DRAW_CONTROLLERS, "Draw controllers", std::to_string(bufferCtrl).c_str());
 			return true;
 		}
@@ -473,6 +510,15 @@ auto CRDFPlugin::ProcessRDFQueue(void) -> void
 				std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
 				radarTarget = RadarTargetSelect(callsign_dump.c_str());
 			}
+			std::shared_lock<std::shared_mutex> lockSettings(screenLock);
+			int circleRadius = GetDrawingParam()->circleRadius;
+			int circlePrecision = GetDrawingParam()->circlePrecision;
+			int circleThreshold = GetDrawingParam()->circleThreshold;
+			int lowAltitude = GetDrawingParam()->lowAltitude;
+			int highAltitude = GetDrawingParam()->highAltitude;
+			int lowPrecision = GetDrawingParam()->lowPrecision;
+			int highPrecision = GetDrawingParam()->highPrecision;
+			bool drawController = GetDrawingParam()->drawController;
 			if (radarTarget.IsValid()) {
 				int alt = radarTarget.GetPosition().GetPressureAltitude();
 				if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
@@ -609,6 +655,16 @@ auto CRDFPlugin::AddOffset(EuroScopePlugIn::CPosition& position, const double& h
 	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
 }
 
+auto CRDFPlugin::GetDrawingParam(void) -> std::shared_ptr<_shared_settings>
+{
+	try {
+		return screenSettings.at(activeScreenID);
+	}
+	catch (...) {
+		return std::make_shared<_shared_settings>();
+	}
+}
+
 auto CRDFPlugin::VectorAudioMainLoop(void) -> void
 {
 	threadMainRunning = true;
@@ -735,9 +791,13 @@ auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool CanBeCreated)
 	-> EuroScopePlugIn::CRadarScreen*
 {
-	DisplayInfoMessage(std::string("Radio Direction Finder plugin activated on ") + sDisplayName);
-
-	return new CRDFScreen(this);
+	size_t i = screenVec.size(); // should not be -1
+	DisplayInfoMessage(std::format("Radio Direction Finder plugin activated on {}", sDisplayName));
+	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(i);
+	screenVec.push_back(screen);
+	LoadSharedSettings(i);
+	DisplayDebugMessage(std::format("Screen created: ID {}, type {}", i, sDisplayName));
+	return screen.get();
 }
 
 auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
@@ -748,7 +808,7 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 	{
 		std::regex rxReload("^.RDF RELOAD$", std::regex_constants::icase);
 		if (regex_match(cmd, match, rxReload)) {
-			LoadSettings();
+			LoadGlobalSettings();
 			return true;
 		}
 		std::regex rxAddress("^.RDF ADDRESS (\\S+)$", std::regex_constants::icase);
