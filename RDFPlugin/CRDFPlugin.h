@@ -31,21 +31,22 @@ constexpr auto SETTING_LOW_PRECISION = "LowPrecision";
 constexpr auto SETTING_HIGH_PRECISION = "HighPrecision";
 constexpr auto SETTING_DRAW_CONTROLLERS = "DrawControllers";
 
-typedef struct __draw_position {
+typedef struct _draw_position {
 	EuroScopePlugIn::CPosition position;
 	double radius;
-	__draw_position(void) :
+	_draw_position(void) :
 		position(),
 		radius(20)
 	{};
-	__draw_position(EuroScopePlugIn::CPosition _position, double _radius) :
+	_draw_position(EuroScopePlugIn::CPosition _position, double _radius) :
 		position(_position),
 		radius(_radius)
 	{};
-} _draw_position;
-typedef std::map<std::string, _draw_position> callsign_position;
+} draw_position;
+typedef std::map<std::string, draw_position> callsign_position;
+auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void;
 
-typedef struct __draw_settings {
+typedef struct _draw_settings {
 	COLORREF rdfRGB;
 	COLORREF rdfConcurRGB;
 	int circleRadius;
@@ -57,7 +58,7 @@ typedef struct __draw_settings {
 	int highPrecision;
 	bool drawController;
 
-	__draw_settings(void) :
+	_draw_settings(void) :
 		rdfRGB((255, 255, 255)), // Default: white
 		rdfConcurRGB((255, 0, 0)), // Default: red
 		circleRadius(20), // Default: 20 (nautical miles or pixel), range: (0, +inf)
@@ -81,13 +82,13 @@ private:
 	std::map<int, std::shared_ptr<draw_settings>> screenSettings; // screeID -> settings, ID=-1 used as plugin setting
 	std::atomic_int activeScreenID;
 	std::shared_mutex screenLock;
-	auto GetDrawingParam(void) -> std::shared_ptr<draw_settings>;
+	auto GetDrawingParam(void) -> draw_settings const;
 
 	// drawing records
 	callsign_position activeStations;
 	callsign_position previousStations;
 
-	// offset params
+	// randoms
 	std::random_device randomDevice;
 	std::mt19937 rdGenerator;
 	std::uniform_real_distribution<> disBearing;
@@ -107,8 +108,7 @@ private:
 	HWND hiddenWindowRDF = NULL;
 	HWND hiddenWindowAFV = NULL;
 	std::mutex messageLock; // Lock for the message queue
-	// Internal message quque
-	std::queue<std::set<std::string>> messages;
+	std::queue<std::set<std::string>> messages; // Internal message quque
 	WNDCLASS windowClassRDF = {
 	   NULL,
 	   HiddenWindowRDF,
@@ -134,13 +134,14 @@ private:
 	   "AfvBridgeHiddenWindowClass"
 	};
 
-	auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void;
+	// settings related functions
 	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
 	auto LoadVectorAudioSettings(void) -> void;
 	auto LoadDrawingSettings(const int& screenID = -1) -> void;
-	auto ParseSharedSettings(const std::string& command, const int& screenID = -1) -> bool;
-	auto ProcessRDFQueue(void) -> void;
+	auto ParseDrawingSettings(const std::string& command, const int& screenID = -1) -> bool;
 
+	// functional things 
+	auto ProcessRDFQueue(void) -> void;
 	auto UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void;
 	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
 
@@ -150,11 +151,9 @@ private:
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
 	};
-
 	inline auto DisplayInfoMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
 	}
-
 	inline auto DisplayWarnMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
 	}

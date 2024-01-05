@@ -5,13 +5,13 @@
 
 const double pi = 3.141592653589793;
 const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuroScopeCoord
-static constexpr double GEOM_RAD_FROM_DEG(double deg) { return deg * pi / 180.0; };
-static constexpr double GEOM_DEG_FROM_RAD(double rad) { return rad / pi * 180.0; };
+static constexpr auto GEOM_RAD_FROM_DEG(const double& deg) -> double { return deg * pi / 180.0; };
+static constexpr auto GEOM_DEG_FROM_RAD(const double& rad) -> double { return rad / pi * 180.0; };
 
-inline static int FrequencyConvert(double freq) { // frequency * 1000 => int
+inline static auto FrequencyConvert(const double& freq) -> int { // frequency * 1000 => int
 	return round(freq * 1000.0);
 }
-inline static bool FrequencyCompare(int freq1, int freq2) { // return true if same frequency, frequency *= 1000
+inline static auto FrequencyCompare(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency *= 1000
 	return abs(freq1 - freq2) <= 10;
 }
 
@@ -68,7 +68,7 @@ CRDFPlugin::CRDFPlugin()
 	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
 	disDistance = std::normal_distribution<>(0, 1.0);
 
-	DisplayInfoMessage(std::string("Version " + std::string(MY_PLUGIN_VERSION) + " loaded"));
+	DisplayInfoMessage(std::format("Version {} Loaded", MY_PLUGIN_VERSION));
 
 	// detach thread for VectorAudio
 	threadVectorAudioMain = std::make_unique<std::thread>(&CRDFPlugin::VectorAudioMainLoop, this);
@@ -378,26 +378,26 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 	}
 }
 
-auto CRDFPlugin::ParseSharedSettings(const std::string& command, const int& screenID) -> bool
+auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& screenID) -> bool
 {
 	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
 	// deals with settings available for asr
 	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
 		if (screenID != -1) {
-			screenVec[screenID]->SaveDataToAsr(varName, varDescr, val);
-			DisplayInfoMessage(std::string(varDescr) + ": " + std::string(val) + " (ASR)");
+			screenVec[screenID]->AddAsrDataToBeSaved(varName, varDescr, val);
+			DisplayInfoMessage(std::format("{}: {} (ASR)", varDescr, val));
 		}
 		else {
 			SaveDataToSettings(varName, varDescr, val);
-			DisplayInfoMessage(std::string(varDescr) + ": " + std::string(val));
+			DisplayInfoMessage(std::format("{}: {}", varDescr, val));
 		}
 		};
 	try
 	{
-		std::unique_lock < std::shared_mutex> lock(screenLock);
+		std::unique_lock<std::shared_mutex> lock(screenLock);
 		std::shared_ptr<draw_settings> targetSetting = screenSettings[screenID];
 		std::smatch match;
-		std::regex rxRGB("^.RDF (RGB|CTRGB) (\\S+)$", std::regex_constants::icase);
+		std::regex rxRGB(R"(^.RDF (RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
 		if (regex_match(command, match, rxRGB)) {
 			auto bufferMode = match[1].str();
 			auto bufferRGB = match[2].str();
@@ -511,15 +511,15 @@ auto CRDFPlugin::ProcessRDFQueue(void) -> void
 				std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
 				radarTarget = RadarTargetSelect(callsign_dump.c_str());
 			}
-			std::shared_lock<std::shared_mutex> lockSettings(screenLock);
-			int circleRadius = screenSettings[activeScreenID]->circleRadius;
-			int circlePrecision = screenSettings[activeScreenID]->circlePrecision;
-			int circleThreshold = screenSettings[activeScreenID]->circleThreshold;
-			int lowAltitude = screenSettings[activeScreenID]->lowAltitude;
-			int highAltitude = screenSettings[activeScreenID]->highAltitude;
-			int lowPrecision = screenSettings[activeScreenID]->lowPrecision;
-			int highPrecision = screenSettings[activeScreenID]->highPrecision;
-			bool drawController = screenSettings[activeScreenID]->drawController;
+			auto params = GetDrawingParam();
+			int circleRadius = params.circleRadius;
+			int circlePrecision = params.circlePrecision;
+			int circleThreshold = params.circleThreshold;
+			int lowAltitude = params.lowAltitude;
+			int highAltitude = params.highAltitude;
+			int lowPrecision = params.lowPrecision;
+			int highPrecision = params.highPrecision;
+			bool drawController = params.drawController;
 			if (radarTarget.IsValid()) {
 				int alt = radarTarget.GetPosition().GetPressureAltitude();
 				if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
@@ -635,36 +635,17 @@ auto CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, co
 	}
 }
 
-auto CRDFPlugin::AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void
+auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 {
-	// from ES internal void CEuroScopeCoord :: Move ( double heading, double distance )
-	if (distance < 0.000001)
-		return;
-
-	double m_Lat = position.m_Latitude;
-	double m_Lon = position.m_Longitude;
-
-	double distancePerR = distance / EarthRadius;
-	double cosDistancePerR = cos(distancePerR);
-	double sinDistnacePerR = sin(distancePerR);
-
-	double fi2 = asin(sin(GEOM_RAD_FROM_DEG(m_Lat)) * cosDistancePerR + cos(GEOM_RAD_FROM_DEG(m_Lat)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(heading)));
-	double lambda2 = GEOM_RAD_FROM_DEG(m_Lon) + atan2(sin(GEOM_RAD_FROM_DEG(heading)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(m_Lat)),
-		cosDistancePerR - sin(GEOM_RAD_FROM_DEG(m_Lat)) * sin(fi2));
-
-	position.m_Latitude = GEOM_DEG_FROM_RAD(fi2);
-	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
-}
-
-auto CRDFPlugin::GetDrawingParam(void) -> std::shared_ptr<draw_settings>
-{
+	draw_settings res;
 	try {
-		int id = activeScreenID;
-		return screenSettings.at(id);
+		std::shared_lock<std::shared_mutex> lock(screenLock);
+		res = *screenSettings.at(activeScreenID);
 	}
 	catch (...) {
-		return std::make_shared<draw_settings>();
+		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}", (int)activeScreenID));
 	}
+	return res;
 }
 
 auto CRDFPlugin::VectorAudioMainLoop(void) -> void
@@ -807,15 +788,22 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 	std::smatch match; // all regular expressions will ignore cases
 	try
 	{
-		std::regex rxReload("^.RDF RELOAD$", std::regex_constants::icase);
+		std::regex rxReload(R"(^.RDF RELOAD$)", std::regex_constants::icase);
 		if (regex_match(cmd, match, rxReload)) {
 			LoadVectorAudioSettings();
-			LoadDrawingSettings(-1);
-
-			// TODO: reset screenSettings and other stuff
+			{
+				std::unique_lock<std::shared_mutex> lock(screenLock); // cautious for overlapped lock
+				screenSettings.clear();
+				screenSettings[-1] = std::make_shared<draw_settings>(); // initialize default settings
+			}
+			LoadDrawingSettings(-1); // restore plugin settings
+			for (auto& s : screenVec) { // reload asr settings
+				s->newAsrData.clear();
+				LoadDrawingSettings(s->m_ID);
+			}
 			return true;
 		}
-		std::regex rxAddress("^.RDF ADDRESS (\\S+)$", std::regex_constants::icase);
+		std::regex rxAddress(R"(^.RDF ADDRESS (\S+)$)", std::regex_constants::icase);
 		if (regex_match(cmd, match, rxAddress)) {
 			addressVectorAudio = match[1].str();
 			DisplayInfoMessage(std::string("Address: ") + addressVectorAudio);
@@ -851,11 +839,32 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 				return true;
 			}
 		}
-		return ParseSharedSettings(sCommandLine);
+		return ParseDrawingSettings(sCommandLine);
 	}
 	catch (const std::exception& e)
 	{
 		DisplayWarnMessage(e.what());
 	}
 	return false;
+}
+
+auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void
+{
+	// from ES internal void CEuroScopeCoord :: Move ( double heading, double distance )
+	if (distance < 0.000001)
+		return;
+
+	double m_Lat = position.m_Latitude;
+	double m_Lon = position.m_Longitude;
+
+	double distancePerR = distance / EarthRadius;
+	double cosDistancePerR = cos(distancePerR);
+	double sinDistnacePerR = sin(distancePerR);
+
+	double fi2 = asin(sin(GEOM_RAD_FROM_DEG(m_Lat)) * cosDistancePerR + cos(GEOM_RAD_FROM_DEG(m_Lat)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(heading)));
+	double lambda2 = GEOM_RAD_FROM_DEG(m_Lon) + atan2(sin(GEOM_RAD_FROM_DEG(heading)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(m_Lat)),
+		cosDistancePerR - sin(GEOM_RAD_FROM_DEG(m_Lat)) * sin(fi2));
+
+	position.m_Latitude = GEOM_DEG_FROM_RAD(fi2);
+	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
 }
