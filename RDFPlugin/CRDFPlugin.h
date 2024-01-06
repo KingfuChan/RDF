@@ -98,9 +98,10 @@ private:
 	std::string addressVectorAudio;
 	int connectionTimeout, pollInterval, retryInterval;
 	// thread controls
-	std::unique_ptr<std::thread> threadVectorAudioMain, threadVectorAudioTXRX;
-	std::atomic_bool threadMainRunning, threadMainClosed,
-		threadTXRXRunning, threadTXRXClosed;
+	std::thread threadVectorAudioMain, threadVectorAudioTXRX;
+	std::condition_variable cvThreadMain, cvThreadTXRX;
+	std::mutex threadMainLock, threadTXRXLock;
+	std::atomic_bool threadRunning = true;
 	auto VectorAudioMainLoop(void) -> void;
 	auto VectorAudioTXRXLoop(void) -> void;
 

@@ -60,29 +60,35 @@ CRDFPlugin::CRDFPlugin()
 		DisplayWarnMessage("Unable to open communications for AFV bridge");
 	}
 
-	screenSettings[-1] = std::make_shared<draw_settings>(); // initialize default settings
+	// initialize default settings
+	screenSettings[-1] = std::make_shared<draw_settings>();
 	LoadVectorAudioSettings();
 	LoadDrawingSettings();
 
+	// random
 	rdGenerator = std::mt19937(randomDevice());
 	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
 	disDistance = std::normal_distribution<>(0, 1.0);
 
+	// thread for VectorAudio
+	threadVectorAudioMain = std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
+	threadVectorAudioTXRX = std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
+
 	DisplayInfoMessage(std::format("Version {} Loaded", MY_PLUGIN_VERSION));
-
-	// detach thread for VectorAudio
-	threadVectorAudioMain = std::make_unique<std::thread>(&CRDFPlugin::VectorAudioMainLoop, this);
-	threadVectorAudioMain->detach();
-	threadVectorAudioTXRX = std::make_unique<std::thread>(&CRDFPlugin::VectorAudioTXRXLoop, this);
-	threadVectorAudioTXRX->detach();
-
 }
 
 CRDFPlugin::~CRDFPlugin()
 {
 	// close detached thread
-	threadMainRunning = false;
-	threadTXRXRunning = false;
+	{
+		std::lock_guard<std::mutex> tMainLock(threadMainLock);
+		std::lock_guard<std::mutex> tTXRXLock(threadTXRXLock);
+		threadRunning = false;
+	}
+	cvThreadMain.notify_all();
+	cvThreadTXRX.notify_all();
+	threadVectorAudioMain.join();
+	threadVectorAudioTXRX.join();
 
 	if (hiddenWindowRDF != nullptr) {
 		DestroyWindow(hiddenWindowRDF);
@@ -94,28 +100,25 @@ CRDFPlugin::~CRDFPlugin()
 	}
 	UnregisterClass("AfvBridgeHiddenWindowClass", nullptr);
 
-	threadMainClosed.wait(false);
-	threadTXRXClosed.wait(false);
 }
 
 auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 {
-	{
-		std::lock_guard<std::mutex> lock(messageLock);
-		if (message.size()) {
-			DisplayDebugMessage(std::string("AFV message: ") + message);
-			std::set<std::string> strings;
-			std::istringstream f(message);
-			std::string s;
-			while (std::getline(f, s, ':')) {
-				strings.insert(s);
-			}
-			messages.push(strings);
+	std::unique_lock<std::mutex> lock(messageLock);
+	if (message.size()) {
+		DisplayDebugMessage(std::string("AFV message: ") + message);
+		std::set<std::string> strings;
+		std::istringstream f(message);
+		std::string s;
+		while (std::getline(f, s, ':')) {
+			strings.insert(s);
 		}
-		else {
-			messages.push(std::set<std::string>());
-		}
+		messages.push(strings);
 	}
+	else {
+		messages.push(std::set<std::string>());
+	}
+	lock.unlock();
 	ProcessRDFQueue();
 }
 
@@ -650,35 +653,21 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 
 auto CRDFPlugin::VectorAudioMainLoop(void) -> void
 {
-	threadMainRunning = true;
-	threadMainClosed = false;
 	bool getTransmit = false;
-	while (true) {
-		for (int sleepRemain = getTransmit ? pollInterval : retryInterval * 1000; sleepRemain > 0;) {
-			if (threadMainRunning) {
-				int sleepThis = min(sleepRemain, pollInterval);
-				std::this_thread::sleep_for(std::chrono::milliseconds(sleepThis));
-				sleepRemain -= sleepThis;
-			}
-			else {
-				threadMainClosed = true;
-				threadMainClosed.notify_all();
-				return;
-			}
-		}
-
+	while (threadRunning) {
+		bool resValid = false;
 		httplib::Client cli("http://" + addressVectorAudio);
-		cli.set_connection_timeout(0, connectionTimeout * 1000);
+		cli.set_connection_timeout(0, (time_t)connectionTimeout * 1000);
 		if (auto res = cli.Get(getTransmit ? VECTORAUDIO_PARAM_TRANSMIT : VECTORAUDIO_PARAM_VERSION)) {
 			if (res->status == 200) {
+				resValid = true;
 				DisplayDebugMessage(std::string("VectorAudio message: ") + res->body);
 				if (!getTransmit) {
 					DisplayInfoMessage("Connected to " + res->body);
 					getTransmit = true;
-					continue;
 				}
-				{
-					std::lock_guard<std::mutex> lock(messageLock);
+				else {
+					std::unique_lock<std::mutex> lock(messageLock);
 					if (!res->body.size()) {
 						messages.push(std::set<std::string>());
 					}
@@ -691,43 +680,37 @@ auto CRDFPlugin::VectorAudioMainLoop(void) -> void
 						}
 						messages.push(strings);
 					}
+					lock.unlock();
+					ProcessRDFQueue();
 				}
-				ProcessRDFQueue();
-				continue;
 			}
-			DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
+			else {
+				DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
+			}
 		}
 		else {
 			DisplayDebugMessage("Not connected");
 		}
-		if (getTransmit) {
+		if (!resValid && getTransmit) {
 			DisplayWarnMessage("VectorAudio disconnected");
+			getTransmit = false;
 		}
-		getTransmit = false;
+
+		std::unique_lock<std::mutex> tLock(threadMainLock);
+		int sleepThis = getTransmit ? pollInterval : retryInterval * 1000;
+		if (cvThreadMain.wait_for(tLock, std::chrono::milliseconds(sleepThis),
+			[&] {return !threadRunning.load(); })) {
+			return;
+		}
 	}
 }
 
 auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
 {
-	threadTXRXRunning = true;
-	threadTXRXClosed = false;
-	bool suppressEmpty = false;
-	while (true) {
-		for (int sleepRemain = retryInterval * 1000; sleepRemain > 0;) {
-			if (threadTXRXRunning) {
-				int sleepThis = min(sleepRemain, pollInterval);
-				std::this_thread::sleep_for(std::chrono::milliseconds(sleepThis));
-				sleepRemain -= sleepThis;
-			}
-			else {
-				threadTXRXClosed = true;
-				threadTXRXClosed.notify_all();
-				return;
-			}
-		}
-
+	bool suppressEmpty = false; // true means no warnings because VectorAudio is not connected
+	while (threadRunning) {
 		httplib::Client cli("http://" + addressVectorAudio);
-		cli.set_connection_timeout(0, connectionTimeout * 1000);
+		cli.set_connection_timeout(0, (time_t)connectionTimeout * 1000);
 		bool isActive = false; // false when no active station, for warning
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
 			if (res->status == 200) {
@@ -763,6 +746,12 @@ auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
 		}
 		else if (isActive) {
 			suppressEmpty = false;
+		}
+
+		std::unique_lock<std::mutex> tLock(threadTXRXLock);
+		if (cvThreadTXRX.wait_for(tLock, std::chrono::seconds(retryInterval),
+			[&] {return !threadRunning.load(); })) {
+			return;
 		}
 	}
 }
