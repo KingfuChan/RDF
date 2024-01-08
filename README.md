@@ -1,5 +1,7 @@
 # RDF
 
+Radio Direction Finder plugin for [EuroScope](https://www.euroscope.hu). Still actively maintained.
+
 ## Support *VectorAudio*/0.5.0+
 
 [*VectorAudio*](https://github.com/pierr3/VectorAudio) is an officially recognized multi-platform Audio-For-VATSIM ATC client for Windows, macOS and Linux. This improved RDF plugin utilizes *VectorAudio*'s SDK and sends HTTP GET requests to get transmitting stations and RX/TX status.
@@ -69,7 +71,7 @@ END
 + **VectorAudioTimeout** is in milliseconds. For HTTP requests.
 + **VectorAudioPollInterval** is in milliseconds. For transmission inquiries.
 + **VectorAudioRetryInterval** is in seconds. For re-establishing connection and updating RX/TX channels.
-+ **RGB, ConcurrentTransmissionRGB**, see [Previous README](#installation-and-previous-readme) below.
++ **RGB, ConcurrentTransmissionRGB**, see [README](#readme-for-legacy-versions) below.
 + **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
 + **DrawControllers** is compatible with both *VectorAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be circled as well but without offset. 0 means OFF and other numeric value means ON.
 
@@ -112,4 +114,4 @@ When EuroScope is running, you can reload settings in *Settings File Setup* and 
 + [vaccfr/CoFrance](https://github.com/vaccfr/CoFrance): method to use async HTTP requests (deprecated since v1.3.2).
 + [Ericple/VATPRC-UniSequence](https://github.com/Ericple/VATPRC-UniSequence): method to use detached thread for HTTP requests.
 
-## [Installation and Previous README](https://github.com/chembergj/RDF#rdf)
+## [README for Legacy Versions](https://github.com/chembergj/RDF#rdf)
