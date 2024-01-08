@@ -4,7 +4,7 @@
 
 /.vs/
 *Debug/
-*.DS_Store
 *Release/
-/RDFPlugin/Release
-._README.md
+*.DS_Store
+*._README.md
+*.vcxproj.user
