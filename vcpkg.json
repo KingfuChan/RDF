@@ -1,0 +1,9 @@
+{
+  "name": "rdf-plugin",
+  "dependencies": [
+    "cpp-httplib",
+    "nlohmann-json",
+    "websocketpp",
+    "boost-random"
+  ]
+}
