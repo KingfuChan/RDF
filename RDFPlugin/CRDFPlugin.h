@@ -1,64 +1,115 @@
 #pragma once
 
 #include "stdafx.h"
-#include <string>
-#include <chrono>
-#include <mutex>
-#include <set>
-#include <queue>
-#include <map>
-#include <random>
-#include <stdexcept>
-#include <sstream>
-#include <iostream>
-#include <thread>
-#include <atomic>
 #include "HiddenWindow.h"
+#include "CRDFScreen.h"
 
-const std::string MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-const std::string MY_PLUGIN_VERSION = "1.3.4";
-const std::string MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
-const std::string MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
+// Plugin info
+constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
+constexpr auto MY_PLUGIN_VERSION = "1.3.5";
+constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
+constexpr auto MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
+// VectorAudio URLs
+constexpr auto VECTORAUDIO_PARAM_VERSION = "/*";
+constexpr auto VECTORAUDIO_PARAM_TRANSMIT = "/transmitting";
+constexpr auto VECTORAUDIO_PARAM_TX = "/tx";
+constexpr auto VECTORAUDIO_PARAM_RX = "/rx";
+// Global settings
+constexpr auto SETTING_VECTORAUDIO_ADDRESS = "VectorAudioAddress";
+constexpr auto SETTING_VECTORAUDIO_TIMEOUT = "VectorAudioTimeout";
+constexpr auto SETTING_VECTORAUDIO_POLL_INTERVAL = "VectorAudioPollInterval";
+constexpr auto SETTING_VECTORAUDIO_RETRY_INTERVAL = "VectorAudioRetryInterval";
+// Shared settings (ASR specific)
+constexpr auto SETTING_RGB = "RGB";
+constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
+constexpr auto SETTING_CIRCLE_RADIUS = "Radius";
+constexpr auto SETTING_THRESHOLD = "Threshold";
+constexpr auto SETTING_PRECISION = "Precision";
+constexpr auto SETTING_LOW_ALTITUDE = "LowAltitude";
+constexpr auto SETTING_HIGH_ALTITUDE = "HighAltitude";
+constexpr auto SETTING_LOW_PRECISION = "LowPrecision";
+constexpr auto SETTING_HIGH_PRECISION = "HighPrecision";
+constexpr auto SETTING_DRAW_CONTROLLERS = "DrawControllers";
 
-typedef struct {
+typedef struct _draw_position {
 	EuroScopePlugIn::CPosition position;
 	double radius;
-} _draw_position;
-typedef std::map<std::string, _draw_position> callsign_position;
+	_draw_position(void) :
+		position(),
+		radius(20)
+	{};
+	_draw_position(EuroScopePlugIn::CPosition _position, double _radius) :
+		position(_position),
+		radius(_radius)
+	{};
+} draw_position;
+typedef std::map<std::string, draw_position> callsign_position;
+auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void;
 
-class CRDFPlugin : public EuroScopePlugIn::CPlugIn
-{
-private:
-
+typedef struct _draw_settings {
+	COLORREF rdfRGB;
+	COLORREF rdfConcurRGB;
 	int circleRadius;
 	int circlePrecision;
+	int circleThreshold;
 	int lowAltitude;
 	int highAltitude;
 	int lowPrecision;
 	int highPrecision;
+	bool drawController;
 
+	_draw_settings(void) :
+		rdfRGB((255, 255, 255)), // Default: white
+		rdfConcurRGB((255, 0, 0)), // Default: red
+		circleRadius(20), // Default: 20 (nautical miles or pixel), range: (0, +inf)
+		circleThreshold(-1), // Default: -1 (always use pixel)
+		circlePrecision(0), // Default: no offset (nautical miles), range: [0, +inf)
+		lowAltitude(0), // Default: 0 (feet)
+		lowPrecision(0), // Default: 0 (nautical miles), range: [0, +inf)
+		highAltitude(0), // Default: 0 (feet)
+		highPrecision(0), // Default: 0 (nautical miles), range: [0, +inf)
+		drawController(false)
+	{};
+} draw_settings;
+
+class CRDFPlugin : public EuroScopePlugIn::CPlugIn
+{
+private:
+	friend class CRDFScreen;
+
+	// screen controls and drawing params
+	std::vector<std::shared_ptr<CRDFScreen>> screenVec; // index is screen ID (incremental int)
+	std::map<int, std::shared_ptr<draw_settings>> screenSettings; // screeID -> settings, ID=-1 used as plugin setting
+	std::atomic_int activeScreenID;
+	std::shared_mutex screenLock;
+	auto GetDrawingParam(void) -> draw_settings const;
+
+	// drawing records
+	callsign_position activeStations;
+	callsign_position previousStations;
+
+	// randoms
 	std::random_device randomDevice;
 	std::mt19937 rdGenerator;
 	std::uniform_real_distribution<> disBearing;
 	std::normal_distribution<> disDistance;
 
+	// VectorAudio controls
 	std::string addressVectorAudio;
 	int connectionTimeout, pollInterval, retryInterval;
 	// thread controls
-	std::thread* threadVectorAudioMain, * threadVectorAudioTXRX;
-	std::atomic_bool threadMainRunning, threadMainClosed,
-		threadTXRXRunning, threadTXRXClosed;
-	void VectorAudioMainLoop(void);
-	void VectorAudioTXRXLoop(void);
+	std::thread threadVectorAudioMain, threadVectorAudioTXRX;
+	std::condition_variable cvThreadMain, cvThreadTXRX;
+	std::mutex threadMainLock, threadTXRXLock;
+	std::atomic_bool threadRunning = true;
+	auto VectorAudioMainLoop(void) -> void;
+	auto VectorAudioTXRXLoop(void) -> void;
 
+	// AFV standalone client controls
 	HWND hiddenWindowRDF = NULL;
 	HWND hiddenWindowAFV = NULL;
-
 	std::mutex messageLock; // Lock for the message queue
-	// Internal message quque
-	std::queue<std::set<std::string>> messages;
-
-	// Class for our window
+	std::queue<std::set<std::string>> messages; // Internal message quque
 	WNDCLASS windowClassRDF = {
 	   NULL,
 	   HiddenWindowRDF,
@@ -84,44 +135,36 @@ private:
 	   "AfvBridgeHiddenWindowClass"
 	};
 
-	bool drawController;
+	// settings related functions
+	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
+	auto LoadVectorAudioSettings(void) -> void;
+	auto LoadDrawingSettings(const int& screenID = -1) -> void;
+	auto ParseDrawingSettings(const std::string& command, const int& screenID = -1) -> bool;
 
-	void GetRGB(COLORREF& color, const char* settingValue);
-	void LoadSettings(void);
-	void ProcessRDFQueue(void);
+	// functional things 
+	auto ProcessRDFQueue(void) -> void;
+	auto UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void;
+	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
 
-	void UpdateVectorAudioChannels(std::string line, bool mode_tx);
-	void ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, int tx = -1, int rx = -1);
-
-	inline void DisplayDebugMessage(std::string msg) {
+	// messages
+	inline auto DisplayDebugMessage(const std::string& msg) -> void {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
-	}
-
-	inline void DisplayInfoMessage(std::string msg) {
+	};
+	inline auto DisplayInfoMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
 	}
-
-	inline void DisplayWarnMessage(std::string msg) {
+	inline auto DisplayWarnMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
 	}
 
 public:
 	CRDFPlugin();
-	virtual ~CRDFPlugin();
-	void HiddenWndProcessRDFMessage(std::string message);
-	void HiddenWndProcessAFVMessage(std::string message);
-	virtual EuroScopePlugIn::CRadarScreen* OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated);
-	virtual bool OnCompileCommand(const char* sCommandLine);
-
-	callsign_position activeTransmittingPilots;
-	callsign_position previousActiveTransmittingPilots;
-
-	COLORREF rdfRGB, rdfConcurrentTransmissionRGB;
-	int circleThreshold;
-
-	void AddOffset(EuroScopePlugIn::CPosition& position, double heading, double distance);
+	~CRDFPlugin();
+	auto HiddenWndProcessRDFMessage(const std::string& message) -> void;
+	auto HiddenWndProcessAFVMessage(const std::string& message) -> void;
+	virtual auto OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated) -> EuroScopePlugIn::CRadarScreen*;
+	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;
 
 };
-

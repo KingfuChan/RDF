@@ -9,9 +9,11 @@ Radio Direction Finder plugin for [EuroScope](https://www.euroscope.hu). Still a
 ## More Customizations
 
 + Random radio direction offsets to simulate measuring errors in real life.
-+ Simulate precision via variable circle radius in nautical miles.
++ Offers variable precision at different altitudes.
 + Hide radio-direction-finders for low altitude aircrafts.
-+ (Old feature) RGB settings for circle or line, and different color for concurrent transmission.
++ Draw controllers as desired.
++ (Existing feature) RGB settings for circle or line, and different color for concurrent transmission.
++ ASR-specific drawing parameters including colors, precision and filtering.
 
 ## Integrate afv-bridge
 
@@ -77,6 +79,27 @@ END
 
 When EuroScope is running, you can reload settings in *Settings File Setup* and then enter `.RDF RELOAD` (case-insensitive) in command line.
 
+## Per ASR Configurations
+
+Since v1.3.5, all configurations made by command line funcions, except those related to *VectorAudio*, will only be effective in current ASR and will be saved to ASR instead of plugin settings file. An RDF-configured ASR may contain the following lines, whose value should be consistent with the above:
+
+```text
+PLUGIN:RDF Plugin for Euroscope:RGB:255:255:255
+PLUGIN:RDF Plugin for Euroscope:ConcurrentTransmissionRGB:255:255:0
+PLUGIN:RDF Plugin for Euroscope:Radius:20
+PLUGIN:RDF Plugin for Euroscope:Threshold:-1
+PLUGIN:RDF Plugin for Euroscope:Precision:0
+PLUGIN:RDF Plugin for Euroscope:LowAltitude:0
+PLUGIN:RDF Plugin for Euroscope:HighAltitude:0
+PLUGIN:RDF Plugin for Euroscope:LowPrecision:0
+PLUGIN:RDF Plugin for Euroscope:HighPrecision:0
+PLUGIN:RDF Plugin for Euroscope:DrawControllers:1
+```
+
+When an ASR is opened, the plugin will use the configurations in the sequence of **ASR - plugin settings file - default value**.
+
+`.RDF RELOAD` commmand line will discard all command line configurations in this session and restore ASR-specific configurations. One can change global settings by modifying plugin settings file, reloading settings in EuroScope dialog, and executing this command.
+
 ## Random Offset Schematic
 
 + **LowAltitude** in feet, is used to filter aircrafts. Only aircrafts not lower than this altitude will be radio-direction-found.
@@ -109,9 +132,6 @@ When EuroScope is running, you can reload settings in *Settings File Setup* and 
 + [pierr3/VectorAudio](https://github.com/pierr3/VectorAudio): initiative.
 + [chembergj/RDF](https://github.com/chembergj/RDF): basic drawings.
 + [AndyTWF/afv-euroscope-bridge](https://github.com/AndyTWF/afv-euroscope-bridge): *Audio for VATSIM standalone client* message handling.
-+ [LeoChen98](https://github.com/LeoChen98), [websterzh](https://github.com/websterzh): idea of using HTTP requests.
 + [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib): HTTP library.
-+ [vaccfr/CoFrance](https://github.com/vaccfr/CoFrance): method to use async HTTP requests (deprecated since v1.3.2).
-+ [Ericple/VATPRC-UniSequence](https://github.com/Ericple/VATPRC-UniSequence): method to use detached thread for HTTP requests.
 
 ## [README for Legacy Versions](https://github.com/chembergj/RDF#rdf)

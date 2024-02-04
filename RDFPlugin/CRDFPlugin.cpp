@@ -1,49 +1,30 @@
+#pragma once
+
 #include "stdafx.h"
 #include "CRDFPlugin.h"
-#include "CRDFScreen.h"
-
-constexpr auto VECTORAUDIO_PARAM_VERSION = "/*";
-constexpr auto VECTORAUDIO_PARAM_TRANSMIT = "/transmitting";
-constexpr auto VECTORAUDIO_PARAM_TX = "/tx";
-constexpr auto VECTORAUDIO_PARAM_RX = "/rx";
-
-constexpr auto SETTING_VECTORAUDIO_ADDRESS = "VectorAudioAddress";
-constexpr auto SETTING_VECTORAUDIO_TIMEOUT = "VectorAudioTimeout";
-constexpr auto SETTING_VECTORAUDIO_POLL_INTERVAL = "VectorAudioPollInterval";
-constexpr auto SETTING_VECTORAUDIO_RETRY_INTERVAL = "VectorAudioRetryInterval";
-constexpr auto SETTING_RGB = "RGB";
-constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
-constexpr auto SETTING_CIRCLE_RADIUS = "Radius";
-constexpr auto SETTING_THRESHOLD = "Threshold";
-constexpr auto SETTING_PRECISION = "Precision";
-constexpr auto SETTING_LOW_ALTITUDE = "LowAltitude";
-constexpr auto SETTING_HIGH_ALTITUDE = "HighAltitude";
-constexpr auto SETTING_LOW_PRECISION = "LowPrecision";
-constexpr auto SETTING_HIGH_PRECISION = "HighPrecision";
-constexpr auto SETTING_DRAW_CONTROLLERS = "DrawControllers";
 
 const double pi = 3.141592653589793;
 const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuroScopeCoord
-constexpr double GEOM_RAD_FROM_DEG(double deg) { return deg * pi / 180.0; };
-constexpr double GEOM_DEG_FROM_RAD(double rad) { return rad / pi * 180.0; };
+static constexpr auto GEOM_RAD_FROM_DEG(const double& deg) -> double { return deg * pi / 180.0; };
+static constexpr auto GEOM_DEG_FROM_RAD(const double& rad) -> double { return rad / pi * 180.0; };
 
-inline int FrequencyConvert(double freq) { // frequency * 1000 => int
+inline static auto FrequencyConvert(const double& freq) -> int { // frequency * 1000 => int
 	return round(freq * 1000.0);
 }
-inline bool FrequencyCompare(int freq1, int freq2) { // return true if same frequency, frequency *= 1000
+inline static auto FrequencyCompare(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency *= 1000
 	return abs(freq1 - freq2) <= 10;
 }
 
 CRDFPlugin::CRDFPlugin()
 	: EuroScopePlugIn::CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
-		MY_PLUGIN_NAME.c_str(),
-		MY_PLUGIN_VERSION.c_str(),
-		MY_PLUGIN_DEVELOPER.c_str(),
-		MY_PLUGIN_COPYRIGHT.c_str())
+		MY_PLUGIN_NAME,
+		MY_PLUGIN_VERSION,
+		MY_PLUGIN_DEVELOPER,
+		MY_PLUGIN_COPYRIGHT)
 {
 	// RDF window
-	RegisterClass(&this->windowClassRDF);
-	this->hiddenWindowRDF = CreateWindow(
+	RegisterClass(&windowClassRDF);
+	hiddenWindowRDF = CreateWindow(
 		"RDFHiddenWindowClass",
 		"RDFHiddenWindow",
 		NULL,
@@ -61,8 +42,8 @@ CRDFPlugin::CRDFPlugin()
 	}
 
 	// AFV bridge window
-	RegisterClass(&this->windowClassAFV);
-	this->hiddenWindowAFV = CreateWindow(
+	RegisterClass(&windowClassAFV);
+	hiddenWindowAFV = CreateWindow(
 		"AfvBridgeHiddenWindowClass",
 		"AfvBridgeHiddenWindow",
 		NULL,
@@ -79,64 +60,69 @@ CRDFPlugin::CRDFPlugin()
 		DisplayWarnMessage("Unable to open communications for AFV bridge");
 	}
 
-	LoadSettings();
+	// initialize default settings
+	screenSettings[-1] = std::make_shared<draw_settings>();
+	LoadVectorAudioSettings();
+	LoadDrawingSettings();
 
-	this->rdGenerator = std::mt19937(this->randomDevice());
-	this->disBearing = std::uniform_real_distribution<>(0.0, 360.0);
-	this->disDistance = std::normal_distribution<>(0, 1.0);
+	// random
+	rdGenerator = std::mt19937(randomDevice());
+	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
+	disDistance = std::normal_distribution<>(0, 1.0);
 
-	DisplayInfoMessage(std::string("Version " + MY_PLUGIN_VERSION + " loaded"));
+	// thread for VectorAudio
+	threadVectorAudioMain = std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
+	threadVectorAudioTXRX = std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
 
-	// detach thread for VectorAudio
-	threadVectorAudioMain = new std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
-	threadVectorAudioMain->detach();
-	threadVectorAudioTXRX = new std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
-	threadVectorAudioTXRX->detach();
-
+	DisplayInfoMessage(std::format("Version {} Loaded", MY_PLUGIN_VERSION));
 }
 
 CRDFPlugin::~CRDFPlugin()
 {
 	// close detached thread
-	threadMainRunning = false;
-	threadTXRXRunning = false;
-
-	if (this->hiddenWindowRDF != NULL) {
-		DestroyWindow(this->hiddenWindowRDF);
+	{
+		std::lock_guard<std::mutex> tMainLock(threadMainLock);
+		std::lock_guard<std::mutex> tTXRXLock(threadTXRXLock);
+		threadRunning = false;
 	}
-	UnregisterClass("RDFHiddenWindowClass", NULL);
+	cvThreadMain.notify_all();
+	cvThreadTXRX.notify_all();
+	threadVectorAudioMain.join();
+	threadVectorAudioTXRX.join();
 
-	if (this->hiddenWindowAFV != NULL) {
-		DestroyWindow(this->hiddenWindowAFV);
+	if (hiddenWindowRDF != nullptr) {
+		DestroyWindow(hiddenWindowRDF);
 	}
-	UnregisterClass("AfvBridgeHiddenWindowClass", NULL);
+	UnregisterClass("RDFHiddenWindowClass", nullptr);
 
-	threadMainClosed.wait(false);
-	threadTXRXClosed.wait(false);
+	if (hiddenWindowAFV != nullptr) {
+		DestroyWindow(hiddenWindowAFV);
+	}
+	UnregisterClass("AfvBridgeHiddenWindowClass", nullptr);
+
 }
 
-void CRDFPlugin::HiddenWndProcessRDFMessage(std::string message)
+auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 {
-	{
-		std::lock_guard<std::mutex> lock(this->messageLock);
-		if (message.size()) {
-			DisplayDebugMessage(std::string("AFV message: ") + message);
-			std::set<std::string> strings;
-			std::istringstream f(message);
-			std::string s;
-			while (std::getline(f, s, ':')) {
-				strings.insert(s);
-			}
-			this->messages.push(strings);
+	std::unique_lock<std::mutex> lock(messageLock);
+	if (message.size()) {
+		DisplayDebugMessage(std::string("AFV message: ") + message);
+		std::set<std::string> strings;
+		std::istringstream f(message);
+		std::string s;
+		while (std::getline(f, s, ':')) {
+			strings.insert(s);
 		}
-		else {
-			this->messages.push(std::set<std::string>());
-		}
+		messages.push(strings);
 	}
+	else {
+		messages.push(std::set<std::string>());
+	}
+	lock.unlock();
 	ProcessRDFQueue();
 }
 
-void CRDFPlugin::HiddenWndProcessAFVMessage(std::string message)
+auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 {
 	// functions as AFV bridge
 	if (!message.size()) return;
@@ -208,51 +194,38 @@ void CRDFPlugin::HiddenWndProcessAFVMessage(std::string message)
 	}
 }
 
-void CRDFPlugin::GetRGB(COLORREF& color, const char* settingValue)
+auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> void
 {
-	unsigned int r, g, b;
-	sscanf_s(settingValue, "%u:%u:%u", &r, &g, &b);
-	if (r <= 255 && g <= 255 && b <= 255) {
-		DisplayDebugMessage(std::string("R: ") + std::to_string(r) + std::string(" G: ") + std::to_string(g) + std::string(" B: ") + std::to_string(b));
-		color = RGB(r, g, b);
+	std::regex rxRGB(R"(^(\d{1,3}):(\d{1,3}):(\d{1,3})$)");
+	std::smatch match;
+	if (std::regex_match(settingValue, match, rxRGB)) {
+		UINT r = std::stoi(match[1].str());
+		UINT g = std::stoi(match[2].str());
+		UINT b = std::stoi(match[3].str());
+		if (r <= 255 && g <= 255 && b <= 255) {
+			DisplayDebugMessage(std::format("R:{} G:{} B:{}", r, g, b));
+			color = RGB(r, g, b);
+		}
 	}
 }
 
-void CRDFPlugin::LoadSettings(void)
+auto CRDFPlugin::LoadVectorAudioSettings(void) -> void
 {
 	addressVectorAudio = "127.0.0.1:49080";
 	connectionTimeout = 300; // milliseconds, range: [100, 1000]
 	pollInterval = 200; // milliseconds, range: [100, +inf)
 	retryInterval = 5; // seconds, range: [1, +inf)
 
-	rdfRGB = RGB(255, 255, 255);	// Default: white
-	rdfConcurrentTransmissionRGB = RGB(255, 0, 0);	// Default: red
-
-	circleRadius = 20; // Default: 20 (nautical miles or pixel), range: (0, +inf)
-	circleThreshold = -1; // Default: -1 (always use pixel)
-	circlePrecision = 0; // Default: no offset (nautical miles), range: [0, +inf)
-	lowAltitude = 0; // Default: 0 (feet)
-	lowPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
-	highAltitude = 0; // Default: 0 (feet)
-	highPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
-	// Schematic: high altitude/precision optional. low altitude used for filtering regardless of others
-	// threshold < 0 will use circleRadius in pixel, circlePrecision for offset, low/high settings ignored
-	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
-	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
-
-	drawController = false;
-
 	try
 	{
 		const char* cstrAddrVA = GetDataFromSettings(SETTING_VECTORAUDIO_ADDRESS);
-		if (cstrAddrVA != NULL)
+		if (cstrAddrVA != nullptr)
 		{
 			addressVectorAudio = cstrAddrVA;
 			DisplayDebugMessage(std::string("Address: ") + addressVectorAudio);
 		}
-
 		const char* cstrTimeout = GetDataFromSettings(SETTING_VECTORAUDIO_TIMEOUT);
-		if (cstrTimeout != NULL)
+		if (cstrTimeout != nullptr)
 		{
 			int parsedTimeout = atoi(cstrTimeout);
 			if (parsedTimeout >= 100 && parsedTimeout <= 1000) {
@@ -260,9 +233,8 @@ void CRDFPlugin::LoadSettings(void)
 				DisplayDebugMessage(std::string("Timeout: ") + std::to_string(connectionTimeout));
 			}
 		}
-
 		const char* cstrPollInterval = GetDataFromSettings(SETTING_VECTORAUDIO_POLL_INTERVAL);
-		if (cstrPollInterval != NULL)
+		if (cstrPollInterval != nullptr)
 		{
 			int parsedInterval = atoi(cstrPollInterval);
 			if (parsedInterval >= 100) {
@@ -270,99 +242,14 @@ void CRDFPlugin::LoadSettings(void)
 				DisplayDebugMessage(std::string("Poll interval: ") + std::to_string(pollInterval));
 			}
 		}
-
 		const char* cstrRetryInterval = GetDataFromSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL);
-		if (cstrRetryInterval != NULL)
+		if (cstrRetryInterval != nullptr)
 		{
 			int parsedInterval = atoi(cstrRetryInterval);
 			if (parsedInterval >= 1) {
 				retryInterval = parsedInterval;
 				DisplayDebugMessage(std::string("Retry interval: ") + std::to_string(retryInterval));
 			}
-		}
-
-		const char* cstrRGB = GetDataFromSettings(SETTING_RGB);
-		if (cstrRGB != NULL)
-		{
-			GetRGB(rdfRGB, cstrRGB);
-		}
-
-		cstrRGB = GetDataFromSettings(SETTING_CONCURRENT_RGB);
-		if (cstrRGB != NULL)
-		{
-			GetRGB(rdfConcurrentTransmissionRGB, cstrRGB);
-		}
-
-		const char* cstrRadius = GetDataFromSettings(SETTING_CIRCLE_RADIUS);
-		if (cstrRadius != NULL)
-		{
-			int parsedRadius = atoi(cstrRadius);
-			if (parsedRadius > 0) {
-				circleRadius = parsedRadius;
-				DisplayDebugMessage(std::string("Radius: ") + std::to_string(circleRadius));
-			}
-		}
-
-		const char* cstrThreshold = GetDataFromSettings(SETTING_THRESHOLD);
-		if (cstrThreshold != NULL)
-		{
-			circleThreshold = atoi(cstrThreshold);
-			DisplayDebugMessage(std::string("Threshold: ") + std::to_string(circleThreshold));
-		}
-
-		const char* cstrPrecision = GetDataFromSettings(SETTING_PRECISION);
-		if (cstrPrecision != NULL)
-		{
-			int parsedPrecision = atoi(cstrPrecision);
-			if (parsedPrecision >= 0) {
-				circlePrecision = parsedPrecision;
-				DisplayDebugMessage(std::string("Precision: ") + std::to_string(circlePrecision));
-			}
-		}
-
-		const char* cstrLowAlt = GetDataFromSettings(SETTING_LOW_ALTITUDE);
-		if (cstrLowAlt != NULL)
-		{
-			int parsedAlt = atoi(cstrLowAlt);
-			lowAltitude = parsedAlt;
-			DisplayDebugMessage(std::string("Low Altitude: ") + std::to_string(lowAltitude));
-		}
-
-		const char* cstrHighAlt = GetDataFromSettings(SETTING_HIGH_ALTITUDE);
-		if (cstrHighAlt != NULL)
-		{
-			int parsedAlt = atoi(cstrHighAlt);
-			if (parsedAlt > 0) {
-				highAltitude = parsedAlt;
-				DisplayDebugMessage(std::string("High Altitude: ") + std::to_string(highAltitude));
-			}
-		}
-
-		const char* cstrLowPrecision = GetDataFromSettings(SETTING_LOW_PRECISION);
-		if (cstrLowPrecision != NULL)
-		{
-			int parsedPrecision = atoi(cstrLowPrecision);
-			if (parsedPrecision >= 0) {
-				lowPrecision = parsedPrecision;
-				DisplayDebugMessage(std::string("Low Precision: ") + std::to_string(lowPrecision));
-			}
-		}
-
-		const char* cstrHighPrecision = GetDataFromSettings(SETTING_HIGH_PRECISION);
-		if (cstrHighPrecision != NULL)
-		{
-			int parsedPrecision = atoi(cstrHighPrecision);
-			if (parsedPrecision >= 0) {
-				highPrecision = parsedPrecision;
-				DisplayDebugMessage(std::string("High Precision: ") + std::to_string(highPrecision));
-			}
-		}
-
-		const char* cstrController = GetDataFromSettings(SETTING_DRAW_CONTROLLERS);
-		if (cstrController != NULL)
-		{
-			drawController = (bool)atoi(cstrController);
-			DisplayDebugMessage(std::string("Draw controllers and observers: ") + std::to_string(drawController));
 		}
 	}
 	catch (std::runtime_error const& e)
@@ -373,25 +260,248 @@ void CRDFPlugin::LoadSettings(void)
 	{
 		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
 	}
-
 }
 
-void CRDFPlugin::ProcessRDFQueue(void)
+auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 {
-	std::lock_guard<std::mutex> lock(this->messageLock);
+	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
+	// Schematic: high altitude/precision optional. low altitude used for filtering regardless of others
+	// threshold < 0 will use circleRadius in pixel, circlePrecision for offset, low/high settings ignored
+	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
+	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
+
+	DisplayDebugMessage(std::format("Loading drawing settings ID {}", screenID));
+	auto GetSetting = [&](const auto& varName) -> std::string {
+		if (screenID != -1) {
+			auto ds = screenVec[screenID]->GetDataFromAsr(varName);
+			if (ds != nullptr) {
+				return ds;
+			}
+		} // fallback onto plugin setting
+		auto d = GetDataFromSettings(varName);
+		return d == nullptr ? "" : d;
+		};
+
+	try
+	{
+		std::unique_lock<std::shared_mutex> lock(screenLock);
+		// initialize settings
+		std::shared_ptr<draw_settings> targetSetting;;
+		auto itrSetting = screenSettings.find(screenID);
+		if (itrSetting != screenSettings.end()) { // use existing
+			targetSetting = itrSetting->second;
+		}
+		else { // create new based on plugin setting
+			DisplayDebugMessage("Inserting new settings");
+			targetSetting = std::make_shared<draw_settings>(*screenSettings[-1]);
+			screenSettings.insert({ screenID, targetSetting });
+		}
+
+		auto cstrRGB = GetSetting(SETTING_RGB);
+		if (cstrRGB.size())
+		{
+			GetRGB(targetSetting->rdfRGB, cstrRGB);
+		}
+		cstrRGB = GetSetting(SETTING_CONCURRENT_RGB);
+		if (cstrRGB.size())
+		{
+			GetRGB(targetSetting->rdfConcurRGB, cstrRGB);
+		}
+		auto cstrRadius = GetSetting(SETTING_CIRCLE_RADIUS);
+		if (cstrRadius.size())
+		{
+			int parsedRadius = std::stoi(cstrRadius);
+			if (parsedRadius > 0) {
+				targetSetting->circleRadius = parsedRadius;
+				DisplayDebugMessage(std::format("Radius: {}, Load ID: {}", targetSetting->circleRadius, screenID));
+			}
+		}
+		auto cstrThreshold = GetSetting(SETTING_THRESHOLD);
+		if (cstrThreshold.size())
+		{
+			targetSetting->circleThreshold = std::stoi(cstrThreshold);
+			DisplayDebugMessage(std::format("Threshold: {}, Load ID: {}", targetSetting->circleThreshold, screenID));
+		}
+		auto cstrPrecision = GetSetting(SETTING_PRECISION);
+		if (cstrPrecision.size())
+		{
+			int parsedPrecision = std::stoi(cstrPrecision);
+			if (parsedPrecision >= 0) {
+				targetSetting->circlePrecision = parsedPrecision;
+				DisplayDebugMessage(std::format("Precision: {}, Load ID: {}", targetSetting->circlePrecision, screenID));
+			}
+		}
+		auto cstrLowAlt = GetSetting(SETTING_LOW_ALTITUDE);
+		if (cstrLowAlt.size())
+		{
+			targetSetting->lowAltitude = std::stoi(cstrLowAlt);
+			DisplayDebugMessage(std::format("Low Altitude: {}, Load ID: {}", targetSetting->lowAltitude, screenID));
+		}
+		auto cstrHighAlt = GetSetting(SETTING_HIGH_ALTITUDE);
+		if (cstrHighAlt.size())
+		{
+			int parsedAlt = std::stoi(cstrHighAlt);
+			if (parsedAlt > 0) {
+				targetSetting->highAltitude = parsedAlt;
+				DisplayDebugMessage(std::format("High Altitude: {}, Load ID: {}", targetSetting->highAltitude, screenID));
+			}
+		}
+		auto cstrLowPrecision = GetSetting(SETTING_LOW_PRECISION);
+		if (cstrLowPrecision.size())
+		{
+			int parsedPrecision = std::stoi(cstrLowPrecision);
+			if (parsedPrecision >= 0) {
+				targetSetting->lowPrecision = parsedPrecision;
+				DisplayDebugMessage(std::format("Low Precision: {}, Load ID: {}", targetSetting->lowPrecision, screenID));
+			}
+		}
+		auto cstrHighPrecision = GetSetting(SETTING_HIGH_PRECISION);
+		if (cstrHighPrecision.size())
+		{
+			int parsedPrecision = std::stoi(cstrHighPrecision);
+			if (parsedPrecision >= 0) {
+				targetSetting->highPrecision = parsedPrecision;
+				DisplayDebugMessage(std::format("High Precision: {}, Load ID: {}", targetSetting->highPrecision, screenID));
+			}
+		}
+		auto cstrController = GetSetting(SETTING_DRAW_CONTROLLERS);
+		if (cstrController.size())
+		{
+			targetSetting->drawController = (bool)std::stoi(cstrController);
+			DisplayDebugMessage(std::format("Draw controllers: {}, Load ID: {}", targetSetting->drawController, screenID));
+		}
+	}
+	catch (std::runtime_error const& e)
+	{
+		DisplayWarnMessage(std::string("Error: ") + e.what());
+	}
+	catch (...)
+	{
+		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
+	}
+}
+
+auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& screenID) -> bool
+{
+	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
+	// deals with settings available for asr
+	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
+		if (screenID != -1) {
+			screenVec[screenID]->AddAsrDataToBeSaved(varName, varDescr, val);
+			DisplayInfoMessage(std::format("{}: {} (ASR)", varDescr, val));
+		}
+		else {
+			SaveDataToSettings(varName, varDescr, val);
+			DisplayInfoMessage(std::format("{}: {}", varDescr, val));
+		}
+		};
+	try
+	{
+		std::unique_lock<std::shared_mutex> lock(screenLock);
+		std::shared_ptr<draw_settings> targetSetting = screenSettings[screenID];
+		std::smatch match;
+		std::regex rxRGB(R"(^.RDF (RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
+		if (regex_match(command, match, rxRGB)) {
+			auto bufferMode = match[1].str();
+			auto bufferRGB = match[2].str();
+			std::transform(bufferMode.begin(), bufferMode.end(), bufferMode.begin(), ::toupper);
+			if (bufferMode == "RGB") {
+				COLORREF prevRGB = targetSetting->rdfRGB;
+				GetRGB(targetSetting->rdfRGB, bufferRGB);
+				if (targetSetting->rdfRGB != prevRGB) {
+					SaveSetting(SETTING_RGB, "RGB", bufferRGB.c_str());
+					return true;
+				}
+			}
+			else {
+				COLORREF prevRGB = targetSetting->rdfConcurRGB;
+				GetRGB(targetSetting->rdfConcurRGB, bufferRGB);
+				if (targetSetting->rdfConcurRGB != prevRGB) {
+					SaveSetting(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB.c_str());
+					return true;
+				}
+			}
+		}
+		// no need for regex
+		std::string cmd = command;
+		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
+		int bufferRadius;
+		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
+			if (bufferRadius > 0) {
+				targetSetting->circleRadius = bufferRadius;
+				SaveSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(targetSetting->circleRadius).c_str());
+				return true;
+			}
+		}
+		int bufferThreshold;
+		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &bufferThreshold) == 1) {
+			targetSetting->circleThreshold = bufferThreshold;
+			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(targetSetting->circleThreshold).c_str());
+			return true;
+		}
+		int bufferAltitude;
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &bufferAltitude) == 1) {
+			targetSetting->lowAltitude = bufferAltitude;
+			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(targetSetting->lowAltitude).c_str());
+			return true;
+		}
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &bufferAltitude) == 1) {
+			targetSetting->highAltitude = bufferAltitude;
+			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(targetSetting->highAltitude).c_str());
+			return true;
+		}
+		int bufferPrecision;
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
+			if (bufferPrecision >= 0) {
+				targetSetting->lowPrecision = bufferPrecision;
+				SaveSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(targetSetting->lowPrecision).c_str());
+				return true;
+			}
+		}
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
+			if (bufferPrecision >= 0) {
+				targetSetting->highPrecision = bufferPrecision;
+				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(targetSetting->highPrecision).c_str());
+				return true;
+			}
+		}
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
+			if (bufferPrecision >= 0) {
+				targetSetting->circlePrecision = bufferPrecision;
+				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(targetSetting->circlePrecision).c_str());
+				return true;
+			}
+		}
+		int bufferCtrl;
+		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
+			targetSetting->drawController = bufferCtrl;
+			SaveSetting(SETTING_DRAW_CONTROLLERS, "Draw controllers", std::to_string(bufferCtrl).c_str());
+			return true;
+		}
+	}
+	catch (const std::exception& e)
+	{
+		DisplayWarnMessage(e.what());
+	}
+	return false;
+}
+
+auto CRDFPlugin::ProcessRDFQueue(void) -> void
+{
+	std::lock_guard<std::mutex> lock(messageLock);
 	// Process all incoming messages
-	while (this->messages.size() > 0) {
-		std::set<std::string> amessage = this->messages.front();
-		this->messages.pop();
+	while (messages.size() > 0) {
+		std::set<std::string> amessage = messages.front();
+		messages.pop();
 
 		// remove existing records
-		for (auto itr = activeTransmittingPilots.begin(); itr != activeTransmittingPilots.end();) {
+		for (auto itr = activeStations.begin(); itr != activeStations.end();) {
 			if (amessage.erase(itr->first)) { // remove still transmitting from message
 				itr++;
 			}
 			else {
 				// no removal, means stopped transmission, need to also remove from map
-				activeTransmittingPilots.erase(itr++);
+				activeStations.erase(itr++);
 			}
 		}
 
@@ -404,6 +514,15 @@ void CRDFPlugin::ProcessRDFQueue(void)
 				std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
 				radarTarget = RadarTargetSelect(callsign_dump.c_str());
 			}
+			auto params = GetDrawingParam();
+			int circleRadius = params.circleRadius;
+			int circlePrecision = params.circlePrecision;
+			int circleThreshold = params.circleThreshold;
+			int lowAltitude = params.lowAltitude;
+			int highAltitude = params.highAltitude;
+			int lowPrecision = params.lowPrecision;
+			int highPrecision = params.highPrecision;
+			bool drawController = params.drawController;
 			if (radarTarget.IsValid()) {
 				int alt = radarTarget.GetPosition().GetPressureAltitude();
 				if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
@@ -425,22 +544,22 @@ void CRDFPlugin::ProcessRDFQueue(void)
 						double bearing = disBearing(rdGenerator);
 						AddOffset(pos, bearing, distance);
 					}
-					activeTransmittingPilots[callsign] = { pos, radius };
+					activeStations[callsign] = { pos, radius };
 				}
 			}
 			else if (drawController && controller.IsValid()) {
 				auto pos = controller.GetPosition();
-				activeTransmittingPilots[callsign] = { pos, (double)lowPrecision };
+				activeStations[callsign] = { pos, (double)lowPrecision };
 			}
 		}
 
-		if (!activeTransmittingPilots.empty()) {
-			previousActiveTransmittingPilots = activeTransmittingPilots;
+		if (!activeStations.empty()) {
+			previousStations = activeStations;
 		}
 	}
 }
 
-void CRDFPlugin::UpdateVectorAudioChannels(std::string line, bool mode_tx)
+auto CRDFPlugin::UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void
 {
 	// parse message and returns number of total toggles
 	std::map<std::string, int> channelFreq;
@@ -502,7 +621,7 @@ void CRDFPlugin::UpdateVectorAudioChannels(std::string line, bool mode_tx)
 	}
 }
 
-void CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, int tx, int rx)
+auto CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx, const int& rx) -> void
 {
 	// pass tx/rx = -1 to skip
 	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
@@ -519,60 +638,38 @@ void CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, in
 	}
 }
 
-void CRDFPlugin::AddOffset(EuroScopePlugIn::CPosition& position, double heading, double distance)
+auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 {
-	// from ES internal void CEuroScopeCoord :: Move ( double heading, double distance )
-	if (distance < 0.000001)
-		return;
-
-	double m_Lat = position.m_Latitude;
-	double m_Lon = position.m_Longitude;
-
-	double distancePerR = distance / EarthRadius;
-	double cosDistancePerR = cos(distancePerR);
-	double sinDistnacePerR = sin(distancePerR);
-
-	double fi2 = asin(sin(GEOM_RAD_FROM_DEG(m_Lat)) * cosDistancePerR + cos(GEOM_RAD_FROM_DEG(m_Lat)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(heading)));
-	double lambda2 = GEOM_RAD_FROM_DEG(m_Lon) + atan2(sin(GEOM_RAD_FROM_DEG(heading)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(m_Lat)),
-		cosDistancePerR - sin(GEOM_RAD_FROM_DEG(m_Lat)) * sin(fi2));
-
-	position.m_Latitude = GEOM_DEG_FROM_RAD(fi2);
-	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
+	draw_settings res;
+	try {
+		std::shared_lock<std::shared_mutex> lock(screenLock);
+		res = *screenSettings.at(activeScreenID);
+	}
+	catch (...) {
+		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}", (int)activeScreenID));
+	}
+	return res;
 }
 
-void CRDFPlugin::VectorAudioMainLoop(void)
+auto CRDFPlugin::VectorAudioMainLoop(void) -> void
 {
-	threadMainRunning = true;
-	threadMainClosed = false;
 	bool getTransmit = false;
-	while (true) {
-		for (int sleepRemain = getTransmit ? pollInterval : retryInterval * 1000; sleepRemain > 0;) {
-			if (threadMainRunning) {
-				int sleepThis = min(sleepRemain, pollInterval);
-				std::this_thread::sleep_for(std::chrono::milliseconds(sleepThis));
-				sleepRemain -= sleepThis;
-			}
-			else {
-				threadMainClosed = true;
-				threadMainClosed.notify_all();
-				return;
-			}
-		}
-
+	while (threadRunning) {
+		bool resValid = false;
 		httplib::Client cli("http://" + addressVectorAudio);
-		cli.set_connection_timeout(0, connectionTimeout * 1000);
+		cli.set_connection_timeout(0, (time_t)connectionTimeout * 1000);
 		if (auto res = cli.Get(getTransmit ? VECTORAUDIO_PARAM_TRANSMIT : VECTORAUDIO_PARAM_VERSION)) {
 			if (res->status == 200) {
+				resValid = true;
 				DisplayDebugMessage(std::string("VectorAudio message: ") + res->body);
 				if (!getTransmit) {
 					DisplayInfoMessage("Connected to " + res->body);
 					getTransmit = true;
-					continue;
 				}
-				{
-					std::lock_guard<std::mutex> lock(this->messageLock);
+				else {
+					std::unique_lock<std::mutex> lock(messageLock);
 					if (!res->body.size()) {
-						this->messages.push(std::set<std::string>());
+						messages.push(std::set<std::string>());
 					}
 					else {
 						std::set<std::string> strings;
@@ -581,45 +678,39 @@ void CRDFPlugin::VectorAudioMainLoop(void)
 						while (getline(f, s, ',')) {
 							strings.insert(s);
 						}
-						this->messages.push(strings);
+						messages.push(strings);
 					}
+					lock.unlock();
+					ProcessRDFQueue();
 				}
-				ProcessRDFQueue();
-				continue;
 			}
-			DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
+			else {
+				DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
+			}
 		}
 		else {
 			DisplayDebugMessage("Not connected");
 		}
-		if (getTransmit) {
+		if (!resValid && getTransmit) {
 			DisplayWarnMessage("VectorAudio disconnected");
+			getTransmit = false;
 		}
-		getTransmit = false;
+
+		std::unique_lock<std::mutex> tLock(threadMainLock);
+		int sleepThis = getTransmit ? pollInterval : retryInterval * 1000;
+		if (cvThreadMain.wait_for(tLock, std::chrono::milliseconds(sleepThis),
+			[&] {return !threadRunning.load(); })) {
+			return;
+		}
 	}
 }
 
-void CRDFPlugin::VectorAudioTXRXLoop(void)
+auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
 {
-	threadTXRXRunning = true;
-	threadTXRXClosed = false;
-	bool suppressEmpty = false;
-	while (true) {
-		for (int sleepRemain = retryInterval * 1000; sleepRemain > 0;) {
-			if (threadTXRXRunning) {
-				int sleepThis = min(sleepRemain, pollInterval);
-				std::this_thread::sleep_for(std::chrono::milliseconds(sleepThis));
-				sleepRemain -= sleepThis;
-			}
-			else {
-				threadTXRXClosed = true;
-				threadTXRXClosed.notify_all();
-				return;
-			}
-		}
-
+	bool suppressEmpty = false; // true means no warnings because VectorAudio is not connected
+	while (threadRunning) {
 		httplib::Client cli("http://" + addressVectorAudio);
-		cli.set_connection_timeout(0, connectionTimeout * 1000);
+		cli.set_connection_timeout(0, (time_t)connectionTimeout * 1000);
 		bool isActive = false; // false when no active station, for warning
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
 			if (res->status == 200) {
@@ -656,42 +747,60 @@ void CRDFPlugin::VectorAudioTXRXLoop(void)
 		else if (isActive) {
 			suppressEmpty = false;
 		}
+
+		std::unique_lock<std::mutex> tLock(threadTXRXLock);
+		if (cvThreadTXRX.wait_for(tLock, std::chrono::seconds(retryInterval),
+			[&] {return !threadRunning.load(); })) {
+			return;
+		}
 	}
 }
 
-EuroScopePlugIn::CRadarScreen* CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
+auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool NeedRadarContent,
 	bool GeoReferenced,
 	bool CanBeSaved,
 	bool CanBeCreated)
+	-> EuroScopePlugIn::CRadarScreen*
 {
-	DisplayInfoMessage(std::string("Radio Direction Finder plugin activated on ") + sDisplayName);
-
-	return new CRDFScreen(this);
+	size_t i = screenVec.size(); // should not be -1
+	DisplayInfoMessage(std::format("Radio Direction Finder plugin activated on {}", sDisplayName));
+	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(i);
+	screenVec.push_back(screen);
+	DisplayDebugMessage(std::format("Screen created: ID {}, type {}", i, sDisplayName));
+	return screen.get();
 }
 
-bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
+auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 {
 	std::string cmd = sCommandLine;
-	for (auto& c : cmd) {
-		c += c >= 'a' && c <= 'z' ? 'A' - 'a' : 0; // make upper
-	}
+	std::smatch match; // all regular expressions will ignore cases
 	try
 	{
-
-		if (cmd == ".RDF RELOAD") {
-			LoadSettings();
+		std::regex rxReload(R"(^.RDF RELOAD$)", std::regex_constants::icase);
+		if (regex_match(cmd, match, rxReload)) {
+			LoadVectorAudioSettings();
+			{
+				std::unique_lock<std::shared_mutex> lock(screenLock); // cautious for overlapped lock
+				screenSettings.clear();
+				screenSettings[-1] = std::make_shared<draw_settings>(); // initialize default settings
+			}
+			LoadDrawingSettings(-1); // restore plugin settings
+			for (auto& s : screenVec) { // reload asr settings
+				s->newAsrData.clear();
+				LoadDrawingSettings(s->m_ID);
+			}
 			return true;
 		}
-
-		char bufferAddr[128] = { 0 };
-		if (sscanf_s(cmd.c_str(), ".RDF ADDRESS %s", bufferAddr, sizeof(bufferAddr)) == 1) {
-			addressVectorAudio = std::string(bufferAddr);
+		std::regex rxAddress(R"(^.RDF ADDRESS (\S+)$)", std::regex_constants::icase);
+		if (regex_match(cmd, match, rxAddress)) {
+			addressVectorAudio = match[1].str();
 			DisplayInfoMessage(std::string("Address: ") + addressVectorAudio);
 			SaveDataToSettings(SETTING_VECTORAUDIO_ADDRESS, "VectorAudio address", addressVectorAudio.c_str());
 			return true;
 		}
-
+		// no need for regex any more
+		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
 		int bufferTimeout;
 		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout) == 1) {
 			if (bufferTimeout >= 100 && bufferTimeout <= 1000) {
@@ -701,7 +810,6 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 				return true;
 			}
 		}
-
 		int bufferPollInterval;
 		if (sscanf_s(cmd.c_str(), ".RDF POLL %d", &bufferPollInterval) == 1) {
 			if (bufferPollInterval >= 100) {
@@ -711,7 +819,6 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 				return true;
 			}
 		}
-
 		int bufferRetryInterval;
 		if (sscanf_s(cmd.c_str(), ".RDF RETRY %d", &bufferRetryInterval) == 1) {
 			if (bufferRetryInterval >= 1) {
@@ -721,95 +828,32 @@ bool CRDFPlugin::OnCompileCommand(const char* sCommandLine)
 				return true;
 			}
 		}
-
-		char bufferRGB[15] = { 0 };
-		if (sscanf_s(cmd.c_str(), ".RDF RGB %s", bufferRGB, sizeof(bufferRGB)) == 1) {
-			COLORREF prevRGB = rdfRGB;
-			GetRGB(rdfRGB, bufferRGB);
-			if (rdfRGB != prevRGB) {
-				SaveDataToSettings(SETTING_RGB, "RGB", bufferRGB);
-				DisplayInfoMessage((std::string("RGB: ") + bufferRGB).c_str());
-				return true;
-			}
-		}
-		else if (sscanf_s(cmd.c_str(), ".RDF CTRGB %s", bufferRGB, sizeof(bufferRGB)) == 1) {
-			COLORREF prevRGB = rdfConcurrentTransmissionRGB;
-			GetRGB(rdfConcurrentTransmissionRGB, bufferRGB);
-			if (rdfConcurrentTransmissionRGB != prevRGB) {
-				SaveDataToSettings(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB);
-				DisplayInfoMessage((std::string("Concurrent RGB: ") + bufferRGB).c_str());
-				return true;
-			}
-		}
-
-		int bufferRadius;
-		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
-			if (bufferRadius > 0) {
-				circleRadius = bufferRadius;
-				DisplayInfoMessage(std::string("Radius: ") + std::to_string(circleRadius));
-				SaveDataToSettings(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(circleRadius).c_str());
-				return true;
-			}
-		}
-
-		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &circleThreshold) == 1) {
-			DisplayInfoMessage(std::string("Threshold: ") + std::to_string(circleThreshold));
-			SaveDataToSettings(SETTING_THRESHOLD, "Threshold", std::to_string(circleThreshold).c_str());
-			return true;
-		}
-
-		int bufferPrecision;
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
-			if (bufferPrecision >= 0) {
-				circlePrecision = bufferPrecision;
-				DisplayInfoMessage(std::string("Precision: ") + std::to_string(circlePrecision));
-				SaveDataToSettings(SETTING_PRECISION, "Precision", std::to_string(circlePrecision).c_str());
-				return true;
-			}
-		}
-
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &lowAltitude) == 1) {
-			DisplayInfoMessage(std::string("Altitude (low): ") + std::to_string(lowAltitude));
-			SaveDataToSettings(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(lowAltitude).c_str());
-			return true;
-		}
-
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &highAltitude) == 1) {
-			DisplayInfoMessage(std::string("Altitude (high): ") + std::to_string(highAltitude));
-			SaveDataToSettings(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(highAltitude).c_str());
-			return true;
-		}
-
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
-			if (bufferPrecision >= 0) {
-				lowPrecision = bufferPrecision;
-				DisplayInfoMessage(std::string("Precision (low): ") + std::to_string(lowPrecision));
-				SaveDataToSettings(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(lowPrecision).c_str());
-				return true;
-			}
-		}
-
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
-			if (bufferPrecision >= 0) {
-				highPrecision = bufferPrecision;
-				DisplayInfoMessage(std::string("Precision (high): ") + std::to_string(highPrecision));
-				SaveDataToSettings(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(highPrecision).c_str());
-				return true;
-			}
-		}
-
-		int bufferCtrl;
-		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
-			drawController = bufferCtrl;
-			DisplayInfoMessage(std::string("Draw controllers: ") + std::to_string(drawController));
-			SaveDataToSettings(SETTING_DRAW_CONTROLLERS, "Draw controllers", std::to_string(bufferCtrl).c_str());
-			return true;
-		}
-
+		return ParseDrawingSettings(sCommandLine);
 	}
 	catch (const std::exception& e)
 	{
 		DisplayWarnMessage(e.what());
 	}
 	return false;
+}
+
+auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void
+{
+	// from ES internal void CEuroScopeCoord :: Move ( double heading, double distance )
+	if (distance < 0.000001)
+		return;
+
+	double m_Lat = position.m_Latitude;
+	double m_Lon = position.m_Longitude;
+
+	double distancePerR = distance / EarthRadius;
+	double cosDistancePerR = cos(distancePerR);
+	double sinDistnacePerR = sin(distancePerR);
+
+	double fi2 = asin(sin(GEOM_RAD_FROM_DEG(m_Lat)) * cosDistancePerR + cos(GEOM_RAD_FROM_DEG(m_Lat)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(heading)));
+	double lambda2 = GEOM_RAD_FROM_DEG(m_Lon) + atan2(sin(GEOM_RAD_FROM_DEG(heading)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(m_Lat)),
+		cosDistancePerR - sin(GEOM_RAD_FROM_DEG(m_Lat)) * sin(fi2));
+
+	position.m_Latitude = GEOM_DEG_FROM_RAD(fi2);
+	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
 }
