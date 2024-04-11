@@ -58,18 +58,18 @@ typedef struct _draw_settings {
 	int highPrecision;
 	bool drawController;
 
-	_draw_settings(void) :
-		rdfRGB((255, 255, 255)), // Default: white
-		rdfConcurRGB((255, 0, 0)), // Default: red
-		circleRadius(20), // Default: 20 (nautical miles or pixel), range: (0, +inf)
-		circleThreshold(-1), // Default: -1 (always use pixel)
-		circlePrecision(0), // Default: no offset (nautical miles), range: [0, +inf)
-		lowAltitude(0), // Default: 0 (feet)
-		lowPrecision(0), // Default: 0 (nautical miles), range: [0, +inf)
-		highAltitude(0), // Default: 0 (feet)
-		highPrecision(0), // Default: 0 (nautical miles), range: [0, +inf)
-		drawController(false)
-	{};
+	_draw_settings(void) {
+		rdfRGB = RGB(255, 255, 255); // Default: white
+		rdfConcurRGB = RGB(255, 0, 0); // Default: red
+		circleRadius = 20; // Default: 20 (nautical miles or pixel), range: (0, +inf)
+		circleThreshold = -1; // Default: -1 (always use pixel)
+		circlePrecision = 0; // Default: no offset (nautical miles), range: [0, +inf)
+		lowAltitude = 0; // Default: 0 (feet)
+		lowPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
+		highAltitude = 0; // Default: 0 (feet)
+		highPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
+		drawController = false;
+	};
 } draw_settings;
 
 class CRDFPlugin : public EuroScopePlugIn::CPlugIn
