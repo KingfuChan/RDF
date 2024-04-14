@@ -28,22 +28,22 @@ There are two ways to modify the plugin settings - by settings file and by comma
 
 This table shows all configurable items.
 
-|Entry Name|Command Line Keyword|Range|Default Value|
-|-|-|-|-|
-|VectorAudioAddress|ADDRESS||127.0.0.1:49080|
-|VectorAudioTimeout|TIMEOUT|[100, 1000]|300|
-|VectorAudioPollInterval|POLL|[100, +inf)|200|
-|VectorAudioRetryInterval|RETRY|[1, +inf)|5|
-|RGB|RGB|RRR:GGG:BBB|255:255:255|
-|ConcurrentTransmissionRGB|CTRGB|RRR:GGG:BBB|255:0:0|
-|Radius|RADIUS|(0, +inf)|20|
-|Threshold|THRESHOLD||-1|
-|Precision|PRECISION|[0, +inf)|0|
-|LowAltitude|ALTITUDE L_____||0|
-|HighAltitude|ALTITUDE H_____|[0, +inf)|0|
-|LowPrecision|PRECISION L_____||0|
-|HighPrecision|PRECISION H_____|[0, +inf)|0|
-|DrawControllers|CONTROLLER|0 or 1|0|
+| Entry Name                | Command Line Keyword | Range       | Default Value   |
+| ------------------------- | -------------------- | ----------- | --------------- |
+| VectorAudioAddress        | ADDRESS              |             | 127.0.0.1:49080 |
+| VectorAudioTimeout        | TIMEOUT              | [100, 1000] | 300             |
+| VectorAudioPollInterval   | POLL                 | [100, +inf) | 200             |
+| VectorAudioRetryInterval  | RETRY                | [1, +inf)   | 5               |
+| RGB                       | RGB                  | RRR:GGG:BBB | 255:255:255     |
+| ConcurrentTransmissionRGB | CTRGB                | RRR:GGG:BBB | 255:0:0         |
+| Radius                    | RADIUS               | (0, +inf)   | 20              |
+| Threshold                 | THRESHOLD            |             | -1              |
+| Precision                 | PRECISION            | [0, +inf)   | 0               |
+| LowAltitude               | ALTITUDE L_____      |             | 0               |
+| HighAltitude              | ALTITUDE H_____      | [0, +inf)   | 0               |
+| LowPrecision              | PRECISION L_____     |             | 0               |
+| HighPrecision             | PRECISION H_____     | [0, +inf)   | 0               |
+| DrawControllers           | CONTROLLER           | 0 or 1      | 0               |
 
 For command line configurations, use `.RDF KEYWORD VALUE`, e.g. `.RDF CTRGB 0:255:255`. Replace "_____" with value in low/high altitude/precision directly, e.g. `.RDF ALTITUDE L10000`. All command line functions are case-insensitive. Command line settings will be saved to plugin settings file (defined in .prf file).
 
@@ -123,9 +123,18 @@ When an ASR is opened, the plugin will use the configurations in the sequence of
 
 + EuroScope may crash when using TopSky at the same time with certain TopSky settings due to conflicting API method to communicate with *Audio for VATSIM standalone client*. Goto *TopSkySettings.txt* and add `RDF_Mode=-1` to prevent such cases.
 + Do not simultaneously load this plugin along with the older version of RDF, or with the original *afv-euroscope-bridge* plugin, which may cause unexpected behavior.
-+ *Audio for VATSIM standalone client* doesn't provide callsign for RX/TX, so this plugin has to guess the corresponding callsign and it don't guarantee 100% correct toggles. But it shouldn't affect text receive and transmit function.
+
+> [!IMPORTANT]
+> Check your .prf content and make sure *afv-euroscope-bridge* will not be loaded.
+>
+> And check your *TopSkySettings.txt* if you are using TopSky.
+>
+> Fail to obey these rules may result in accidental crash.
+
++ *Audio for VATSIM standalone client* doesn't provide callsign for RX/TX, so this plugin has to guess the corresponding callsign and it doesn't guarantee 100% correct toggles. But it shouldn't affect text receive and transmit function.
 + When using professional correlation mode (S or C) in EuroScope, it's possible some aircraft won't be radio-direction-found because the plugin doesn't know the callsign for an uncorrelated radar target.
 + For dual pilot situation where the transmitting pilot logs in as observer, this plugin will try to drop the last character of the observer callsign and find again if this dropped character is between A-Z. This feature may cause inaccurate radio-direction.
++ Because of new drawing behaviour introduced after *EuroScope v3.2.3*, switching between ASRs may not change the plugin drawing configurations. In such case, simply pan your view to update configurations per ASR.
 
 ## Credits
 
