@@ -6,7 +6,7 @@
 
 // Plugin info
 constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-constexpr auto MY_PLUGIN_VERSION = "1.3.5";
+constexpr auto MY_PLUGIN_VERSION = "1.4.0";
 constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
 constexpr auto MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
 // VectorAudio URLs
@@ -104,6 +104,9 @@ private:
 	std::atomic_bool threadRunning = true;
 	auto VectorAudioMainLoop(void) -> void;
 	auto VectorAudioTXRXLoop(void) -> void;
+	// WebSocket for TrackAudio
+	ix::WebSocket ixTrackAudioSocket;
+	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
 
 	// AFV standalone client controls
 	HWND hiddenWindowRDF = NULL;
