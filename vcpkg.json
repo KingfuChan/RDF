@@ -1,6 +1,8 @@
 {
   "name": "rdf-plugin",
   "dependencies": [
-    "cpp-httplib"
+    "cpp-httplib",
+    "nlohmann-json",
+    "ixwebsocket"
   ]
 }

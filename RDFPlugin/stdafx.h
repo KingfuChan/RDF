@@ -21,6 +21,7 @@
 #include <shared_mutex>
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 // container
 #include <set>
 #include <queue>
@@ -33,10 +34,13 @@
 #include <memory>
 // networking
 #include <httplib.h>
-//#include <websocketpp/config/asio_no_tls_client.hpp>
-//#include <websocketpp/client.hpp>
-//#include <websocketpp/common/thread.hpp>
-//#include <websocketpp/common/memory.hpp>
+#include <ixwebsocket/IXNetSystem.h>
+#include <ixwebsocket/IXWebSocket.h>
+#include <ixwebsocket/IXUserAgent.h>
+#pragma comment(lib, "Crypt32.lib")
+#pragma comment(lib, "wsock32.lib")
+#pragma comment(lib, "shlwapi.lib")
+#pragma comment(lib, "ws2_32.lib")
 // external
-//#include <nlohmann/json.hpp>
+#include <nlohmann/json.hpp>
 #include <EuroScopePlugIn.h>

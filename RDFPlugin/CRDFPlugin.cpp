@@ -74,6 +74,12 @@ CRDFPlugin::CRDFPlugin()
 	threadVectorAudioMain = std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
 	threadVectorAudioTXRX = std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
 
+	// ws for TrackAudio
+	ix::initNetSystem();
+	ixTrackAudioSocket.setUrl(std::format("ws://{}/ws", addressVectorAudio));
+	ixTrackAudioSocket.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
+	ixTrackAudioSocket.start();
+
 	DisplayInfoMessage(std::format("Version {} Loaded", MY_PLUGIN_VERSION));
 }
 
@@ -89,6 +95,10 @@ CRDFPlugin::~CRDFPlugin()
 	cvThreadTXRX.notify_all();
 	threadVectorAudioMain.join();
 	threadVectorAudioTXRX.join();
+
+	// stop ws
+	ixTrackAudioSocket.stop();
+	ix::uninitNetSystem();
 
 	if (hiddenWindowRDF != nullptr) {
 		DestroyWindow(hiddenWindowRDF);
@@ -661,7 +671,7 @@ auto CRDFPlugin::VectorAudioMainLoop(void) -> void
 		if (auto res = cli.Get(getTransmit ? VECTORAUDIO_PARAM_TRANSMIT : VECTORAUDIO_PARAM_VERSION)) {
 			if (res->status == 200) {
 				resValid = true;
-				DisplayDebugMessage(std::string("VectorAudio message: ") + res->body);
+				//DisplayDebugMessage(std::string("VectorAudio message: ") + res->body);
 				if (!getTransmit) {
 					DisplayInfoMessage("Connected to " + res->body);
 					getTransmit = true;
@@ -685,11 +695,11 @@ auto CRDFPlugin::VectorAudioMainLoop(void) -> void
 				}
 			}
 			else {
-				DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
+				//DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
 			}
 		}
 		else {
-			DisplayDebugMessage("Not connected");
+			//DisplayDebugMessage("Not connected");
 		}
 		if (!resValid && getTransmit) {
 			DisplayWarnMessage("VectorAudio disconnected");
@@ -714,12 +724,12 @@ auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
 		bool isActive = false; // false when no active station, for warning
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
 			if (res->status == 200) {
-				DisplayDebugMessage(std::string("VectorAudio message on TX: ") + res->body);
+				//DisplayDebugMessage(std::string("VectorAudio message on TX: ") + res->body);
 				isActive = isActive || res->body.size();
 				UpdateVectorAudioChannels(res->body, true);
 			}
 			else {
-				DisplayDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
+				//DisplayDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
 				suppressEmpty = true;
 			}
 		}
@@ -728,12 +738,12 @@ auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
 		}
 		if (auto res = cli.Get(VECTORAUDIO_PARAM_RX)) {
 			if (res->status == 200) {
-				DisplayDebugMessage(std::string("VectorAudio message on RX: ") + res->body);
+				//DisplayDebugMessage(std::string("VectorAudio message on RX: ") + res->body);
 				isActive = isActive || res->body.size();
 				UpdateVectorAudioChannels(res->body, false);
 			}
 			else {
-				DisplayDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));
+				//DisplayDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));
 				suppressEmpty = true;
 			}
 		}
@@ -753,6 +763,36 @@ auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
 			[&] {return !threadRunning.load(); })) {
 			return;
 		}
+	}
+}
+
+auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void
+{
+	if (msg->type == ix::WebSocketMessageType::Message)
+	{
+		try {
+			DisplayDebugMessage(std::format("WS msg: {}", msg->str));
+			auto data = nlohmann::json::parse(msg->str);
+			// TODO
+		}
+		catch (std::exception& exc) {
+
+		}
+	}
+	else if (msg->type == ix::WebSocketMessageType::Open)
+	{
+		//TODO: handle
+		DisplayDebugMessage("WS msg OPEN");
+	}
+	else if (msg->type == ix::WebSocketMessageType::Error)
+	{
+		//TODO: handle
+		DisplayDebugMessage("WS msg Error");
+	}
+	else if (msg->type == ix::WebSocketMessageType::Close)
+	{
+		//TODO
+		DisplayDebugMessage("WS msg Close");
 	}
 }
 
