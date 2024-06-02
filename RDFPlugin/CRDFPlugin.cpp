@@ -778,17 +778,28 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			nlohmann::json msgValue = data["value"];
 			if (msgType == "kRxBegin") {
 
+
 			}
 			else if (msgType == "kRxEnd") {
+
 
 			}
 			else if (msgType == "kFrequencyStateUpdate") {
 
 				std::string freqStateLine;
+				for (auto& elem : msgValue["tx"]) {
+					double freq = (int)elem["pFrequencyHz"] / 1000000.0;
+					std::string callsign = elem["pCallsign"];
+					std::string l = std::format("{}:{:.3f},", callsign, freq);
+					DisplayDebugMessage(l);
+					freqStateLine += l;
+				}
+				UpdateVectorAudioChannels(freqStateLine, true);
+				freqStateLine.clear();
 				for (auto& elem : msgValue["rx"]) {
 					double freq = (int)elem["pFrequencyHz"] / 1000000.0;
 					std::string callsign = elem["pCallsign"];
-					std::string l = std::format("{}:{%.3f}", callsign, freq);
+					std::string l = std::format("{}:{:.3f},", callsign, freq);
 					DisplayDebugMessage(l);
 					freqStateLine += l;
 				}
@@ -812,8 +823,13 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 	}
 	else if (msg->type == ix::WebSocketMessageType::Close)
 	{
-		//TODO
 		DisplayDebugMessage("WS msg Close");
+		std::unique_lock lock(messageLock);
+		messages.push(std::set<std::string>());
+		lock.unlock();
+		ProcessRDFQueue();
+		UpdateVectorAudioChannels("", true);
+		UpdateVectorAudioChannels("", false);
 	}
 }
 
