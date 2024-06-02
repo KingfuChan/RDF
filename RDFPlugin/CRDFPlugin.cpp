@@ -71,8 +71,8 @@ CRDFPlugin::CRDFPlugin()
 	disDistance = std::normal_distribution<>(0, 1.0);
 
 	// thread for VectorAudio
-	threadVectorAudioMain = std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
-	threadVectorAudioTXRX = std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
+	//threadVectorAudioMain = std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
+	//threadVectorAudioTXRX = std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
 
 	// ws for TrackAudio
 	ix::initNetSystem();
@@ -86,15 +86,15 @@ CRDFPlugin::CRDFPlugin()
 CRDFPlugin::~CRDFPlugin()
 {
 	// close detached thread
-	{
-		std::lock_guard<std::mutex> tMainLock(threadMainLock);
-		std::lock_guard<std::mutex> tTXRXLock(threadTXRXLock);
-		threadRunning = false;
-	}
-	cvThreadMain.notify_all();
-	cvThreadTXRX.notify_all();
-	threadVectorAudioMain.join();
-	threadVectorAudioTXRX.join();
+	//{
+	//	std::lock_guard<std::mutex> tMainLock(threadMainLock);
+	//	std::lock_guard<std::mutex> tTXRXLock(threadTXRXLock);
+	//	threadRunning = false;
+	//}
+	//cvThreadMain.notify_all();
+	//cvThreadTXRX.notify_all();
+	//threadVectorAudioMain.join();
+	//threadVectorAudioTXRX.join();
 
 	// stop ws
 	ixTrackAudioSocket.stop();
@@ -771,12 +771,33 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 	if (msg->type == ix::WebSocketMessageType::Message)
 	{
 		try {
+
 			DisplayDebugMessage(std::format("WS msg: {}", msg->str));
 			auto data = nlohmann::json::parse(msg->str);
-			// TODO
+			std::string msgType = data["type"];
+			nlohmann::json msgValue = data["value"];
+			if (msgType == "kRxBegin") {
+
+			}
+			else if (msgType == "kRxEnd") {
+
+			}
+			else if (msgType == "kFrequencyStateUpdate") {
+
+				std::string freqStateLine;
+				for (auto& elem : msgValue["rx"]) {
+					double freq = (int)elem["pFrequencyHz"] / 1000000.0;
+					std::string callsign = elem["pCallsign"];
+					std::string l = std::format("{}:{%.3f}", callsign, freq);
+					DisplayDebugMessage(l);
+					freqStateLine += l;
+				}
+				UpdateVectorAudioChannels(freqStateLine, false);
+			}
+
 		}
 		catch (std::exception& exc) {
-
+			DisplayDebugMessage(exc.what());
 		}
 	}
 	else if (msg->type == ix::WebSocketMessageType::Open)
