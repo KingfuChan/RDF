@@ -38,7 +38,7 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		DisplayWarnMessage("Unable to open communications for RDF");
+		DisplayWarnMessage("Unable to open communications for RDF.");
 	}
 
 	// AFV bridge window
@@ -57,10 +57,16 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		DisplayWarnMessage("Unable to open communications for AFV bridge");
+		DisplayWarnMessage("Unable to open communications for AFV bridge.");
 	}
 
 	// initialize default settings
+	ix::initNetSystem();
+	ixTrackAudioSocket.setHandshakeTimeout(CONST_CONN_SEC);
+	ixTrackAudioSocket.setMaxWaitBetweenReconnectionRetries(CONST_CONN_SEC);
+	ixTrackAudioSocket.setMinWaitBetweenReconnectionRetries(CONST_CONN_SEC);
+	ixTrackAudioSocket.setPingInterval(CONST_HEARTBEAT_SEC);
+	ixTrackAudioSocket.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
 	screenSettings[-1] = std::make_shared<draw_settings>();
 	LoadVectorAudioSettings();
 	LoadDrawingSettings();
@@ -70,35 +76,13 @@ CRDFPlugin::CRDFPlugin()
 	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
 	disDistance = std::normal_distribution<>(0, 1.0);
 
-	// thread for VectorAudio
-	//threadVectorAudioMain = std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
-	//threadVectorAudioTXRX = std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
-
-	// ws for TrackAudio
-	ix::initNetSystem();
-	ixTrackAudioSocket.setUrl(std::format("ws://{}/ws", addressVectorAudio));
-	ixTrackAudioSocket.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
-	ixTrackAudioSocket.start();
-
-	DisplayInfoMessage(std::format("Version {} Loaded", MY_PLUGIN_VERSION));
+	DisplayInfoMessage(std::format("Version {} Loaded.", MY_PLUGIN_VERSION));
 }
 
 CRDFPlugin::~CRDFPlugin()
 {
-	// close detached thread
-	//{
-	//	std::lock_guard<std::mutex> tMainLock(threadMainLock);
-	//	std::lock_guard<std::mutex> tTXRXLock(threadTXRXLock);
-	//	threadRunning = false;
-	//}
-	//cvThreadMain.notify_all();
-	//cvThreadTXRX.notify_all();
-	//threadVectorAudioMain.join();
-	//threadVectorAudioTXRX.join();
-
-	// stop ws
+	// disconnect TrackAudio connection
 	ixTrackAudioSocket.stop();
-	ix::uninitNetSystem();
 
 	if (hiddenWindowRDF != nullptr) {
 		DestroyWindow(hiddenWindowRDF);
@@ -110,6 +94,7 @@ CRDFPlugin::~CRDFPlugin()
 	}
 	UnregisterClass("AfvBridgeHiddenWindowClass", nullptr);
 
+	ix::uninitNetSystem();
 }
 
 auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
@@ -222,54 +207,16 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 auto CRDFPlugin::LoadVectorAudioSettings(void) -> void
 {
 	addressVectorAudio = "127.0.0.1:49080";
-	connectionTimeout = 300; // milliseconds, range: [100, 1000]
-	pollInterval = 200; // milliseconds, range: [100, +inf)
-	retryInterval = 5; // seconds, range: [1, +inf)
+	const char* cstrAddrVA = GetDataFromSettings(SETTING_WEBSOCKET_ADDRESS);
+	if (cstrAddrVA != nullptr) {
+		addressVectorAudio = cstrAddrVA;
+		DisplayDebugMessage(std::string("Address: ") + addressVectorAudio);
+	}
 
-	try
-	{
-		const char* cstrAddrVA = GetDataFromSettings(SETTING_VECTORAUDIO_ADDRESS);
-		if (cstrAddrVA != nullptr)
-		{
-			addressVectorAudio = cstrAddrVA;
-			DisplayDebugMessage(std::string("Address: ") + addressVectorAudio);
-		}
-		const char* cstrTimeout = GetDataFromSettings(SETTING_VECTORAUDIO_TIMEOUT);
-		if (cstrTimeout != nullptr)
-		{
-			int parsedTimeout = atoi(cstrTimeout);
-			if (parsedTimeout >= 100 && parsedTimeout <= 1000) {
-				connectionTimeout = parsedTimeout;
-				DisplayDebugMessage(std::string("Timeout: ") + std::to_string(connectionTimeout));
-			}
-		}
-		const char* cstrPollInterval = GetDataFromSettings(SETTING_VECTORAUDIO_POLL_INTERVAL);
-		if (cstrPollInterval != nullptr)
-		{
-			int parsedInterval = atoi(cstrPollInterval);
-			if (parsedInterval >= 100) {
-				pollInterval = parsedInterval;
-				DisplayDebugMessage(std::string("Poll interval: ") + std::to_string(pollInterval));
-			}
-		}
-		const char* cstrRetryInterval = GetDataFromSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL);
-		if (cstrRetryInterval != nullptr)
-		{
-			int parsedInterval = atoi(cstrRetryInterval);
-			if (parsedInterval >= 1) {
-				retryInterval = parsedInterval;
-				DisplayDebugMessage(std::string("Retry interval: ") + std::to_string(retryInterval));
-			}
-		}
-	}
-	catch (std::runtime_error const& e)
-	{
-		DisplayWarnMessage(std::string("Error: ") + e.what());
-	}
-	catch (...)
-	{
-		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
-	}
+	// initialize TrackAudio WebSocket
+	ixTrackAudioSocket.stop();
+	ixTrackAudioSocket.setUrl(std::format("ws://{}{}", addressVectorAudio, TRACKAUDIO_PARAM_WS));
+	ixTrackAudioSocket.start();
 }
 
 auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
@@ -661,115 +608,9 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 	return res;
 }
 
-auto CRDFPlugin::VectorAudioMainLoop(void) -> void
-{
-	bool getTransmit = false;
-	while (threadRunning) {
-		bool resValid = false;
-		httplib::Client cli("http://" + addressVectorAudio);
-		cli.set_connection_timeout(0, (time_t)connectionTimeout * 1000);
-		if (auto res = cli.Get(getTransmit ? VECTORAUDIO_PARAM_TRANSMIT : VECTORAUDIO_PARAM_VERSION)) {
-			if (res->status == 200) {
-				resValid = true;
-				//DisplayDebugMessage(std::string("VectorAudio message: ") + res->body);
-				if (!getTransmit) {
-					DisplayInfoMessage("Connected to " + res->body);
-					getTransmit = true;
-				}
-				else {
-					std::unique_lock<std::mutex> lock(messageLock);
-					if (!res->body.size()) {
-						messages.push(std::set<std::string>());
-					}
-					else {
-						std::set<std::string> strings;
-						std::istringstream f(res->body);
-						std::string s;
-						while (getline(f, s, ',')) {
-							strings.insert(s);
-						}
-						messages.push(strings);
-					}
-					lock.unlock();
-					ProcessRDFQueue();
-				}
-			}
-			else {
-				//DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
-			}
-		}
-		else {
-			//DisplayDebugMessage("Not connected");
-		}
-		if (!resValid && getTransmit) {
-			DisplayWarnMessage("VectorAudio disconnected");
-			getTransmit = false;
-		}
-
-		std::unique_lock<std::mutex> tLock(threadMainLock);
-		int sleepThis = getTransmit ? pollInterval : retryInterval * 1000;
-		if (cvThreadMain.wait_for(tLock, std::chrono::milliseconds(sleepThis),
-			[&] {return !threadRunning.load(); })) {
-			return;
-		}
-	}
-}
-
-auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
-{
-	bool suppressEmpty = false; // true means no warnings because VectorAudio is not connected
-	while (threadRunning) {
-		httplib::Client cli("http://" + addressVectorAudio);
-		cli.set_connection_timeout(0, (time_t)connectionTimeout * 1000);
-		bool isActive = false; // false when no active station, for warning
-		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
-			if (res->status == 200) {
-				//DisplayDebugMessage(std::string("VectorAudio message on TX: ") + res->body);
-				isActive = isActive || res->body.size();
-				UpdateVectorAudioChannels(res->body, true);
-			}
-			else {
-				//DisplayDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
-				suppressEmpty = true;
-			}
-		}
-		else {
-			suppressEmpty = true;
-		}
-		if (auto res = cli.Get(VECTORAUDIO_PARAM_RX)) {
-			if (res->status == 200) {
-				//DisplayDebugMessage(std::string("VectorAudio message on RX: ") + res->body);
-				isActive = isActive || res->body.size();
-				UpdateVectorAudioChannels(res->body, false);
-			}
-			else {
-				//DisplayDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));
-				suppressEmpty = true;
-			}
-		}
-		else {
-			suppressEmpty = true;
-		}
-		if (!isActive && !suppressEmpty) {
-			DisplayWarnMessage("No active stations in VecterAudio! Please check configuration.");
-			suppressEmpty = true;
-		}
-		else if (isActive) {
-			suppressEmpty = false;
-		}
-
-		std::unique_lock<std::mutex> tLock(threadTXRXLock);
-		if (cvThreadTXRX.wait_for(tLock, std::chrono::seconds(retryInterval),
-			[&] {return !threadRunning.load(); })) {
-			return;
-		}
-	}
-}
-
 auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void
 {
-	if (msg->type == ix::WebSocketMessageType::Message)
-	{
+	if (msg->type == ix::WebSocketMessageType::Message) {
 		try {
 
 			DisplayDebugMessage(std::format("WS msg: {}", msg->str));
@@ -811,25 +652,40 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			DisplayDebugMessage(exc.what());
 		}
 	}
-	else if (msg->type == ix::WebSocketMessageType::Open)
-	{
-		//TODO: handle
+	else if (msg->type == ix::WebSocketMessageType::Open) {
 		DisplayDebugMessage("WS msg OPEN");
+		// use jthread to prevent blocking
+		auto GetTrackAudioVersion = [&] {
+			// check for TrackAudio presense
+			httplib::Client cli(std::format("http://{}", addressVectorAudio));
+			cli.set_connection_timeout(CONST_CONN_SEC);
+			if (auto res = cli.Get(VECTORAUDIO_PARAM_VERSION)) {
+				if (res->status == 200 && res->body.size()) {
+					DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressVectorAudio));
+					return;
+				}
+			}
+			};
+		std::thread(GetTrackAudioVersion).detach();
 	}
-	else if (msg->type == ix::WebSocketMessageType::Error)
-	{
-		//TODO: handle
-		DisplayDebugMessage("WS msg Error");
+	else if (msg->type == ix::WebSocketMessageType::Error) {
+		DisplayDebugMessage(std::format("WS msg ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
+			msg->errorInfo.reason, (int)msg->errorInfo.retries, msg->errorInfo.wait_time, msg->errorInfo.http_status));
+
 	}
-	else if (msg->type == ix::WebSocketMessageType::Close)
-	{
-		DisplayDebugMessage("WS msg Close");
+	else if (msg->type == ix::WebSocketMessageType::Close) {
+		DisplayDebugMessage(std::format("WS msg CLOSE! code: {}, reason: {}",
+			(int)msg->closeInfo.code, msg->closeInfo.reason));
 		std::unique_lock lock(messageLock);
 		messages.push(std::set<std::string>());
 		lock.unlock();
 		ProcessRDFQueue();
 		UpdateVectorAudioChannels("", true);
 		UpdateVectorAudioChannels("", false);
+		DisplayWarnMessage("TrackAudio WebSocket disconnected!");
+	}
+	else {
+		DisplayDebugMessage(std::format("WS msg {}", (int)msg->type));
 	}
 }
 
@@ -841,7 +697,7 @@ auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	-> EuroScopePlugIn::CRadarScreen*
 {
 	size_t i = screenVec.size(); // should not be -1
-	DisplayInfoMessage(std::format("Radio Direction Finder plugin activated on {}", sDisplayName));
+	DisplayInfoMessage(std::format("Radio Direction Finder plugin activated on {}.", sDisplayName));
 	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(i);
 	screenVec.push_back(screen);
 	DisplayDebugMessage(std::format("Screen created: ID {}, type {}", i, sDisplayName));
@@ -868,42 +724,6 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 				LoadDrawingSettings(s->m_ID);
 			}
 			return true;
-		}
-		std::regex rxAddress(R"(^.RDF ADDRESS (\S+)$)", std::regex_constants::icase);
-		if (regex_match(cmd, match, rxAddress)) {
-			addressVectorAudio = match[1].str();
-			DisplayInfoMessage(std::string("Address: ") + addressVectorAudio);
-			SaveDataToSettings(SETTING_VECTORAUDIO_ADDRESS, "VectorAudio address", addressVectorAudio.c_str());
-			return true;
-		}
-		// no need for regex any more
-		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
-		int bufferTimeout;
-		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout) == 1) {
-			if (bufferTimeout >= 100 && bufferTimeout <= 1000) {
-				connectionTimeout = bufferTimeout;
-				DisplayInfoMessage(std::string("Timeout: ") + std::to_string(connectionTimeout));
-				SaveDataToSettings(SETTING_VECTORAUDIO_TIMEOUT, "VectorAudio timeout", std::to_string(connectionTimeout).c_str());
-				return true;
-			}
-		}
-		int bufferPollInterval;
-		if (sscanf_s(cmd.c_str(), ".RDF POLL %d", &bufferPollInterval) == 1) {
-			if (bufferPollInterval >= 100) {
-				pollInterval = bufferPollInterval;
-				DisplayInfoMessage(std::string("Poll interval: ") + std::to_string(bufferPollInterval));
-				SaveDataToSettings(SETTING_VECTORAUDIO_POLL_INTERVAL, "VectorAudio poll interval", std::to_string(pollInterval).c_str());
-				return true;
-			}
-		}
-		int bufferRetryInterval;
-		if (sscanf_s(cmd.c_str(), ".RDF RETRY %d", &bufferRetryInterval) == 1) {
-			if (bufferRetryInterval >= 1) {
-				retryInterval = bufferRetryInterval;
-				DisplayInfoMessage(std::string("Retry interval: ") + std::to_string(retryInterval));
-				SaveDataToSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL, "VectorAudio retry interval", std::to_string(retryInterval).c_str());
-				return true;
-			}
 		}
 		return ParseDrawingSettings(sCommandLine);
 	}
