@@ -9,8 +9,8 @@ constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
 constexpr auto MY_PLUGIN_VERSION = "1.4.0";
 constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
 constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3";
-// VectorAudio URLs
-constexpr auto VECTORAUDIO_PARAM_VERSION = "/*";
+// TrackAudio URLs
+constexpr auto TRACKAUDIO_PARAM_VERSION = "/*";
 constexpr auto TRACKAUDIO_PARAM_WS = "/ws";
 // Global settings
 constexpr auto SETTING_WEBSOCKET_ADDRESS = "WebSocketAddress";
@@ -92,7 +92,7 @@ private:
 	std::normal_distribution<> disDistance;
 
 	// TrackAudio WebSocket
-	std::string addressVectorAudio;
+	std::string addressTrackAudio;
 	ix::WebSocket ixTrackAudioSocket;
 	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
 
@@ -128,13 +128,13 @@ private:
 
 	// settings related functions
 	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
-	auto LoadVectorAudioSettings(void) -> void;
+	auto LoadTrackAudioSettings(void) -> void;
 	auto LoadDrawingSettings(const int& screenID = -1) -> void;
 	auto ParseDrawingSettings(const std::string& command, const int& screenID = -1) -> bool;
 
 	// functional things 
 	auto ProcessRDFQueue(void) -> void;
-	auto UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void;
+	auto UpdateTrackAudioChannels(const std::string& line, const bool& mode_tx) -> void;
 	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
 
 	// messages
