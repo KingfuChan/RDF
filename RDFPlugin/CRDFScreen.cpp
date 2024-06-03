@@ -91,7 +91,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 				}
 				else {
 					// using pixel as boundary xy
-					Ellipse(hDC, pPos.x - round(drawR), pPos.y - round(drawR), pPos.x + round(drawR), pPos.y + round(drawR));
+					Ellipse(hDC, pPos.x - (int)round(drawR), pPos.y - (int)round(drawR), pPos.x + (int)round(drawR), pPos.y + (int)round(drawR));
 				}
 				continue;
 			}

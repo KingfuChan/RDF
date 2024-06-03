@@ -8,10 +8,13 @@ const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuro
 static constexpr auto GEOM_RAD_FROM_DEG(const double& deg) -> double { return deg * pi / 180.0; };
 static constexpr auto GEOM_DEG_FROM_RAD(const double& rad) -> double { return rad / pi * 180.0; };
 
-inline static auto FrequencyConvert(const double& freq) -> int { // frequency * 1000 => int
-	return round(freq * 1000.0);
+inline static auto FrequencyFromMHz(const double& freq) -> int {
+	return (int)round(freq * 1000.0);
 }
-inline static auto FrequencyCompare(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency *= 1000
+inline static auto FrequencyFromHz(const double& freq) -> int {
+	return (int)round(freq / 1000.0);
+}
+inline static auto FrequencyCompare(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency in kHz
 	return abs(freq1 - freq2) <= 10;
 }
 
@@ -68,7 +71,7 @@ CRDFPlugin::CRDFPlugin()
 	ixTrackAudioSocket.setPingInterval(CONST_HEARTBEAT_SEC);
 	ixTrackAudioSocket.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
 	screenSettings[-1] = std::make_shared<draw_settings>();
-	LoadVectorAudioSettings();
+	LoadTrackAudioSettings();
 	LoadDrawingSettings();
 
 	// random
@@ -135,7 +138,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	int msgFrequency;
 	bool transmitX, receiveX;
 	try {
-		msgFrequency = FrequencyConvert(stod(strings.front()));
+		msgFrequency = FrequencyFromMHz(stod(strings.front()));
 		strings.pop();
 		receiveX = strings.front() == "True";
 		strings.pop();
@@ -148,13 +151,13 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	}
 
 	// abort if frequency is prim
-	if (FrequencyCompare(msgFrequency, FrequencyConvert(ControllerMyself().GetPrimaryFrequency())))
+	if (FrequencyCompare(msgFrequency, FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency())))
 		return;
 
 	// match frequency to callsign
 	std::string msgCallsign = ControllerMyself().GetCallsign();
 	for (auto c = ControllerSelectFirst(); c.IsValid(); c = ControllerSelectNext(c)) {
-		if (FrequencyCompare(FrequencyConvert(c.GetPrimaryFrequency()), msgFrequency)) {
+		if (FrequencyCompare(FrequencyFromMHz(c.GetPrimaryFrequency()), msgFrequency)) {
 			msgCallsign = c.GetCallsign();
 			break;
 		}
@@ -162,7 +165,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 
 	// find channel and toggle
 	for (auto c = GroundToArChannelSelectFirst(); c.IsValid(); c = GroundToArChannelSelectNext(c)) {
-		int chFreq = FrequencyConvert(c.GetFrequency());
+		int chFreq = FrequencyFromMHz(c.GetFrequency());
 		if (c.GetIsPrimary() || c.GetIsAtis() || !FrequencyCompare(chFreq, msgFrequency))
 			continue;
 		std::string chName = c.GetName();
@@ -182,7 +185,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	// no possible match, toggle the first same frequency
 	for (auto c = GroundToArChannelSelectFirst(); c.IsValid(); c = GroundToArChannelSelectNext(c)) {
 		if (!c.GetIsPrimary() && !c.GetIsAtis() &&
-			FrequencyCompare(FrequencyConvert(c.GetFrequency()), msgFrequency)) {
+			FrequencyCompare(FrequencyFromMHz(c.GetFrequency()), msgFrequency)) {
 			ToggleChannels(c, transmitX, receiveX);
 			return;
 		}
@@ -204,18 +207,18 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 	}
 }
 
-auto CRDFPlugin::LoadVectorAudioSettings(void) -> void
+auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 {
-	addressVectorAudio = "127.0.0.1:49080";
+	addressTrackAudio = "127.0.0.1:49080";
 	const char* cstrAddrVA = GetDataFromSettings(SETTING_WEBSOCKET_ADDRESS);
 	if (cstrAddrVA != nullptr) {
-		addressVectorAudio = cstrAddrVA;
-		DisplayDebugMessage(std::string("Address: ") + addressVectorAudio);
+		addressTrackAudio = cstrAddrVA;
+		DisplayDebugMessage(std::string("Address: ") + addressTrackAudio);
 	}
 
 	// initialize TrackAudio WebSocket
 	ixTrackAudioSocket.stop();
-	ixTrackAudioSocket.setUrl(std::format("ws://{}{}", addressVectorAudio, TRACKAUDIO_PARAM_WS));
+	ixTrackAudioSocket.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
 	ixTrackAudioSocket.start();
 }
 
@@ -516,18 +519,18 @@ auto CRDFPlugin::ProcessRDFQueue(void) -> void
 	}
 }
 
-auto CRDFPlugin::UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void
+auto CRDFPlugin::UpdateTrackAudioChannels(const std::string& line, const bool& mode_tx) -> void
 {
 	// parse message and returns number of total toggles
 	std::map<std::string, int> channelFreq;
 	std::istringstream ssLine(line);
 	std::string strChnl;
-	int freqMe = FrequencyConvert(ControllerMyself().GetPrimaryFrequency());
+	int freqMe = FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency());
 	while (getline(ssLine, strChnl, ',')) {
 		size_t colon = strChnl.find(':');
 		std::string channel = strChnl.substr(0, colon);
 		try {
-			int frequency = FrequencyConvert(stod(strChnl.substr(colon + 1)));
+			int frequency = FrequencyFromMHz(stod(strChnl.substr(colon + 1)));
 			if (!FrequencyCompare(freqMe, frequency)) {
 				channelFreq.insert({ channel, frequency });
 			}
@@ -543,7 +546,7 @@ auto CRDFPlugin::UpdateVectorAudioChannels(const std::string& line, const bool& 
 			continue;
 		}
 		std::string chName = chnl.GetName();
-		int chFreq = FrequencyConvert(chnl.GetFrequency());
+		int chFreq = FrequencyFromMHz(chnl.GetFrequency());
 		auto it = channelFreq.find(chName);
 		if (it != channelFreq.end() && FrequencyCompare(it->second, chFreq)) { // allows 0.010 of deviation
 			channelFreq.erase(it);
@@ -635,7 +638,7 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 					DisplayDebugMessage(l);
 					freqStateLine += l;
 				}
-				UpdateVectorAudioChannels(freqStateLine, true);
+				UpdateTrackAudioChannels(freqStateLine, true);
 				freqStateLine.clear();
 				for (auto& elem : msgValue["rx"]) {
 					double freq = (int)elem["pFrequencyHz"] / 1000000.0;
@@ -644,7 +647,7 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 					DisplayDebugMessage(l);
 					freqStateLine += l;
 				}
-				UpdateVectorAudioChannels(freqStateLine, false);
+				UpdateTrackAudioChannels(freqStateLine, false);
 			}
 
 		}
@@ -657,11 +660,11 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 		// use jthread to prevent blocking
 		auto GetTrackAudioVersion = [&] {
 			// check for TrackAudio presense
-			httplib::Client cli(std::format("http://{}", addressVectorAudio));
+			httplib::Client cli(std::format("http://{}", addressTrackAudio));
 			cli.set_connection_timeout(CONST_CONN_SEC);
-			if (auto res = cli.Get(VECTORAUDIO_PARAM_VERSION)) {
+			if (auto res = cli.Get(TRACKAUDIO_PARAM_VERSION)) {
 				if (res->status == 200 && res->body.size()) {
-					DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressVectorAudio));
+					DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressTrackAudio));
 					return;
 				}
 			}
@@ -680,8 +683,8 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 		messages.push(std::set<std::string>());
 		lock.unlock();
 		ProcessRDFQueue();
-		UpdateVectorAudioChannels("", true);
-		UpdateVectorAudioChannels("", false);
+		UpdateTrackAudioChannels("", true);
+		UpdateTrackAudioChannels("", false);
 		DisplayWarnMessage("TrackAudio WebSocket disconnected!");
 	}
 	else {
@@ -712,7 +715,7 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 	{
 		std::regex rxReload(R"(^.RDF RELOAD$)", std::regex_constants::icase);
 		if (regex_match(cmd, match, rxReload)) {
-			LoadVectorAudioSettings();
+			LoadTrackAudioSettings();
 			{
 				std::unique_lock<std::shared_mutex> lock(screenLock); // cautious for overlapped lock
 				screenSettings.clear();
