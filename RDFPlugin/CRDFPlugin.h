@@ -8,17 +8,14 @@
 constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
 constexpr auto MY_PLUGIN_VERSION = "1.4.0";
 constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
-constexpr auto MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
+constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3";
 // VectorAudio URLs
 constexpr auto VECTORAUDIO_PARAM_VERSION = "/*";
-constexpr auto VECTORAUDIO_PARAM_TRANSMIT = "/transmitting";
-constexpr auto VECTORAUDIO_PARAM_TX = "/tx";
-constexpr auto VECTORAUDIO_PARAM_RX = "/rx";
+constexpr auto TRACKAUDIO_PARAM_WS = "/ws";
 // Global settings
-constexpr auto SETTING_VECTORAUDIO_ADDRESS = "VectorAudioAddress";
-constexpr auto SETTING_VECTORAUDIO_TIMEOUT = "VectorAudioTimeout";
-constexpr auto SETTING_VECTORAUDIO_POLL_INTERVAL = "VectorAudioPollInterval";
-constexpr auto SETTING_VECTORAUDIO_RETRY_INTERVAL = "VectorAudioRetryInterval";
+constexpr auto SETTING_WEBSOCKET_ADDRESS = "WebSocketAddress";
+const int CONST_CONN_SEC = 10;
+const int CONST_HEARTBEAT_SEC = 60;
 // Shared settings (ASR specific)
 constexpr auto SETTING_RGB = "RGB";
 constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
@@ -94,17 +91,8 @@ private:
 	std::uniform_real_distribution<> disBearing;
 	std::normal_distribution<> disDistance;
 
-	// VectorAudio controls
+	// TrackAudio WebSocket
 	std::string addressVectorAudio;
-	int connectionTimeout, pollInterval, retryInterval;
-	// thread controls
-	std::thread threadVectorAudioMain, threadVectorAudioTXRX;
-	std::condition_variable cvThreadMain, cvThreadTXRX;
-	std::mutex threadMainLock, threadTXRXLock;
-	std::atomic_bool threadRunning = true;
-	auto VectorAudioMainLoop(void) -> void;
-	auto VectorAudioTXRXLoop(void) -> void;
-	// WebSocket for TrackAudio
 	ix::WebSocket ixTrackAudioSocket;
 	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
 
