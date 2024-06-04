@@ -14,7 +14,7 @@ inline static auto FrequencyFromMHz(const double& freq) -> int {
 inline static auto FrequencyFromHz(const double& freq) -> int {
 	return (int)round(freq / 1000.0);
 }
-inline static auto FrequencyCompare(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency in kHz
+inline static auto FrequencyIsSame(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency in kHz
 	return abs(freq1 - freq2) <= 10;
 }
 
@@ -149,46 +149,28 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 		return;
 	}
 
-	// abort if frequency is prim
-	if (FrequencyCompare(msgFrequency, FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency())))
-		return;
-
 	// match frequency to callsign
 	std::string msgCallsign = ControllerMyself().GetCallsign();
-	for (auto c = ControllerSelectFirst(); c.IsValid(); c = ControllerSelectNext(c)) {
-		if (FrequencyCompare(FrequencyFromMHz(c.GetPrimaryFrequency()), msgFrequency)) {
-			msgCallsign = c.GetCallsign();
-			break;
-		}
-	}
-
-	// find channel and toggle
-	for (auto c = GroundToArChannelSelectFirst(); c.IsValid(); c = GroundToArChannelSelectNext(c)) {
-		int chFreq = FrequencyFromMHz(c.GetFrequency());
-		if (c.GetIsPrimary() || c.GetIsAtis() || !FrequencyCompare(chFreq, msgFrequency))
-			continue;
-		std::string chName = c.GetName();
-		if (msgCallsign == chName) {
-			ToggleChannels(c, transmitX, receiveX);
-			return;
-		}
-		else {
-			size_t posc = msgCallsign.find('_');
-			if (chName.starts_with(msgCallsign.substr(0, posc))) {
-				ToggleChannels(c, transmitX, receiveX);
-				return;
+	if (!FrequencyIsSame(msgFrequency, FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency()))) { // not myself
+		for (auto c = ControllerSelectFirst(); c.IsValid(); c = ControllerSelectNext(c)) {
+			if (FrequencyIsSame(FrequencyFromMHz(c.GetPrimaryFrequency()), msgFrequency)) {
+				msgCallsign = c.GetCallsign();
+				break;
 			}
 		}
 	}
 
-	// no possible match, toggle the first same frequency
-	for (auto c = GroundToArChannelSelectFirst(); c.IsValid(); c = GroundToArChannelSelectNext(c)) {
-		if (!c.GetIsPrimary() && !c.GetIsAtis() &&
-			FrequencyCompare(FrequencyFromMHz(c.GetFrequency()), msgFrequency)) {
-			ToggleChannels(c, transmitX, receiveX);
-			return;
-		}
+	// deal with increment/decrement of stations
+	std::unique_lock flock(mtxFrequency);
+	if (receiveX) {
+		activeFrequencies[msgCallsign].frequency = msgFrequency;
+		activeFrequencies[msgCallsign].tx = transmitX;
 	}
+	else {
+		activeFrequencies.erase(msgCallsign);
+	}
+	flock.unlock();
+	UpdateChannels();
 }
 
 auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> void
@@ -518,12 +500,12 @@ auto CRDFPlugin::ProcessRDFQueue(void) -> void
 	}
 }
 
-auto CRDFPlugin::UpdateTrackAudioChannels(const nlohmann::json& data) -> void
+auto CRDFPlugin::TrackAudioChannelHandler(const nlohmann::json& data) -> void
 {
 	// parse message and returns number of total toggles
 	// json format as described in TrackAudio SDK ["value"]
 	// internal process in kHz
-	std::unique_lock recLock(mtxRecord);
+	std::unique_lock flock(mtxFrequency);
 	activeFrequencies.clear();
 	try
 	{
@@ -543,34 +525,39 @@ auto CRDFPlugin::UpdateTrackAudioChannels(const nlohmann::json& data) -> void
 	{
 		activeFrequencies.clear();
 	}
-	recLock.unlock();
+	flock.unlock();
 	UpdateChannels();
 }
 
 auto CRDFPlugin::UpdateChannels(void) -> void
 {
-	std::shared_lock recLock(mtxRecord);
-	std::set<int> usingFrequencies;
+	std::shared_lock recLock(mtxFrequency);
+	std::string myName = ControllerMyself().GetCallsign();
+	int myFreq = FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency());
+	std::set<int> usingFrequencies = { myFreq };
 	for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
 		int chFreq = FrequencyFromMHz(chnl.GetFrequency());
 		std::string chName = chnl.GetName();
-		if (chnl.GetIsPrimary() || chnl.GetIsAtis()) { // make sure primary and ATIS are not affected
+		if (usingFrequencies.contains(chFreq)) { // skip frequencies already in use
+			continue;
+		}
+		else if (chName == myName || chnl.GetIsPrimary() || chnl.GetIsAtis()) { // make sure primary and ATIS are not affected
 			usingFrequencies.insert(chFreq);
 			continue;
 		}
-		auto it = activeFrequencies.find(chName);
-		if (it != activeFrequencies.end() && FrequencyCompare(it->second.frequency, chFreq)) {
-			ToggleChannels(chnl, it->second.tx, 1);
+		auto it1 = activeFrequencies.find(chName);
+		if (it1 != activeFrequencies.end() && FrequencyIsSame(it1->second.frequency, chFreq)) {
+			ToggleChannels(chnl, it1->second.tx, 1);
 			usingFrequencies.insert(chFreq);
 			continue;
 		}
-		else if (it == activeFrequencies.end()) {
-			auto itc = std::find_if(activeFrequencies.begin(), activeFrequencies.end(),
-				[chFreq](const auto& i) {return FrequencyCompare(i.second.frequency, chFreq); }); // locate a matching freq
-			if (itc != activeFrequencies.end() && !usingFrequencies.contains(itc->second.frequency)) {
-				size_t posi = itc->first.find('_');
-				if (chName.starts_with(itc->first.substr(0, posi))) {
-					ToggleChannels(chnl, it->second.tx, 1);
+		else if (it1 == activeFrequencies.end()) {
+			auto it2 = std::find_if(activeFrequencies.begin(), activeFrequencies.end(),
+				[chFreq](const auto& i) {return FrequencyIsSame(i.second.frequency, chFreq); }); // locate a matching freq
+			if (it2 != activeFrequencies.end()) {
+				size_t posi = it2->first.find('_');
+				if (chName.starts_with(it2->first.substr(0, posi))) {
+					ToggleChannels(chnl, it2->second.tx, 1);
 					usingFrequencies.insert(chFreq);
 					continue;
 				}
@@ -612,8 +599,8 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 
 auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void
 {
-	if (msg->type == ix::WebSocketMessageType::Message) {
-		try {
+	try {
+		if (msg->type == ix::WebSocketMessageType::Message) {
 
 			DisplayDebugMessage(std::format("WS msg: {}", msg->str));
 			auto data = nlohmann::json::parse(msg->str);
@@ -629,43 +616,43 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			}
 			else if (msgType == "kFrequencyStateUpdate") {
 
-				UpdateTrackAudioChannels(msgValue);
+				TrackAudioChannelHandler(msgValue);
 			}
 
 		}
-		catch (std::exception& exc) {
-			DisplayDebugMessage(exc.what());
-		}
-	}
-	else if (msg->type == ix::WebSocketMessageType::Open) {
-		DisplayDebugMessage("WS msg OPEN");
-		// check for TrackAudio presense
-		httplib::Client cli(std::format("http://{}", addressTrackAudio));
-		cli.set_connection_timeout(TRACKAUDIO_TIMEOUT_SEC);
-		if (auto res = cli.Get(TRACKAUDIO_PARAM_VERSION)) {
-			if (res->status == 200 && res->body.size()) {
-				DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressTrackAudio));
-				return;
+		else if (msg->type == ix::WebSocketMessageType::Open) {
+			DisplayDebugMessage("WS msg OPEN");
+			// check for TrackAudio presense
+			httplib::Client cli(std::format("http://{}", addressTrackAudio));
+			cli.set_connection_timeout(TRACKAUDIO_TIMEOUT_SEC);
+			if (auto res = cli.Get(TRACKAUDIO_PARAM_VERSION)) {
+				if (res->status == 200 && res->body.size()) {
+					DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressTrackAudio));
+					return;
+				}
 			}
 		}
-	}
-	else if (msg->type == ix::WebSocketMessageType::Error) {
-		DisplayDebugMessage(std::format("WS msg ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
-			msg->errorInfo.reason, (int)msg->errorInfo.retries, msg->errorInfo.wait_time, msg->errorInfo.http_status));
+		else if (msg->type == ix::WebSocketMessageType::Error) {
+			DisplayDebugMessage(std::format("WS msg ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
+				msg->errorInfo.reason, (int)msg->errorInfo.retries, msg->errorInfo.wait_time, msg->errorInfo.http_status));
 
+		}
+		else if (msg->type == ix::WebSocketMessageType::Close) {
+			DisplayDebugMessage(std::format("WS msg CLOSE! code: {}, reason: {}",
+				(int)msg->closeInfo.code, msg->closeInfo.reason));
+			std::unique_lock lock(messageLock);
+			messages.push(std::set<std::string>());
+			lock.unlock();
+			ProcessRDFQueue();
+			TrackAudioChannelHandler(R"({"tx":[],"rx":[]})"_json);
+			DisplayWarnMessage("TrackAudio WebSocket disconnected!");
+		}
+		else {
+			DisplayDebugMessage(std::format("WS msg {}", (int)msg->type));
+		}
 	}
-	else if (msg->type == ix::WebSocketMessageType::Close) {
-		DisplayDebugMessage(std::format("WS msg CLOSE! code: {}, reason: {}",
-			(int)msg->closeInfo.code, msg->closeInfo.reason));
-		std::unique_lock lock(messageLock);
-		messages.push(std::set<std::string>());
-		lock.unlock();
-		ProcessRDFQueue();
-		UpdateTrackAudioChannels(nlohmann::json());
-		DisplayWarnMessage("TrackAudio WebSocket disconnected!");
-	}
-	else {
-		DisplayDebugMessage(std::format("WS msg {}", (int)msg->type));
+	catch (std::exception& exc) {
+		DisplayDebugMessage(exc.what());
 	}
 }
 
