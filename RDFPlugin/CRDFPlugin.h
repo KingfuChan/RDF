@@ -88,7 +88,7 @@ private:
 	auto GetDrawingParam(void) -> draw_settings const;
 
 	// drawing records and transmitting frequency records
-	std::shared_mutex mtxRecord;
+	std::shared_mutex mtxTransmission, mtxFrequency;
 	callsign_position activeStations;
 	callsign_position previousStations;
 	callsign_frequency activeFrequencies;
@@ -142,7 +142,7 @@ private:
 
 	// functional things 
 	auto ProcessRDFQueue(void) -> void;
-	auto UpdateTrackAudioChannels(const nlohmann::json& data) -> void;
+	auto TrackAudioChannelHandler(const nlohmann::json& data) -> void;
 	auto UpdateChannels(void) -> void;
 	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
 
