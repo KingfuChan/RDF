@@ -9,13 +9,13 @@ constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
 constexpr auto MY_PLUGIN_VERSION = "1.4.0";
 constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
 constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3";
-// TrackAudio URLs
+// TrackAudio URLs and parameters
 constexpr auto TRACKAUDIO_PARAM_VERSION = "/*";
 constexpr auto TRACKAUDIO_PARAM_WS = "/ws";
+constexpr auto TRACKAUDIO_TIMEOUT_SEC = 1;
+constexpr auto TRACKAUDIO_HEARTBEAT_SEC = 30;
 // Global settings
 constexpr auto SETTING_WEBSOCKET_ADDRESS = "WebSocketAddress";
-const int CONST_CONN_SEC = 10;
-const int CONST_HEARTBEAT_SEC = 60;
 // Shared settings (ASR specific)
 constexpr auto SETTING_RGB = "RGB";
 constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
@@ -69,6 +69,12 @@ typedef struct _draw_settings {
 	};
 } draw_settings;
 
+typedef struct _freq_data {
+	int frequency = 199999;
+	bool tx = false;
+} freq_data;
+typedef std::map<std::string, freq_data> callsign_frequency;
+
 class CRDFPlugin : public EuroScopePlugIn::CPlugIn
 {
 private:
@@ -81,9 +87,11 @@ private:
 	std::shared_mutex screenLock;
 	auto GetDrawingParam(void) -> draw_settings const;
 
-	// drawing records
+	// drawing records and transmitting frequency records
+	std::shared_mutex mtxRecord;
 	callsign_position activeStations;
 	callsign_position previousStations;
+	callsign_frequency activeFrequencies;
 
 	// randoms
 	std::random_device randomDevice;
@@ -134,7 +142,8 @@ private:
 
 	// functional things 
 	auto ProcessRDFQueue(void) -> void;
-	auto UpdateTrackAudioChannels(const std::string& line, const bool& mode_tx) -> void;
+	auto UpdateTrackAudioChannels(const nlohmann::json& data) -> void;
+	auto UpdateChannels(void) -> void;
 	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
 
 	// messages
