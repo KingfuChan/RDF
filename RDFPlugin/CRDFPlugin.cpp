@@ -65,10 +65,9 @@ CRDFPlugin::CRDFPlugin()
 
 	// initialize default settings
 	ix::initNetSystem();
-	ixTrackAudioSocket.setHandshakeTimeout(CONST_CONN_SEC);
-	ixTrackAudioSocket.setMaxWaitBetweenReconnectionRetries(CONST_CONN_SEC);
-	ixTrackAudioSocket.setMinWaitBetweenReconnectionRetries(CONST_CONN_SEC);
-	ixTrackAudioSocket.setPingInterval(CONST_HEARTBEAT_SEC);
+	ixTrackAudioSocket.setHandshakeTimeout(TRACKAUDIO_TIMEOUT_SEC);
+	ixTrackAudioSocket.setMaxWaitBetweenReconnectionRetries(TRACKAUDIO_HEARTBEAT_SEC);
+	ixTrackAudioSocket.setPingInterval(TRACKAUDIO_HEARTBEAT_SEC);
 	ixTrackAudioSocket.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
 	screenSettings[-1] = std::make_shared<draw_settings>();
 	LoadTrackAudioSettings();
@@ -519,81 +518,81 @@ auto CRDFPlugin::ProcessRDFQueue(void) -> void
 	}
 }
 
-auto CRDFPlugin::UpdateTrackAudioChannels(const std::string& line, const bool& mode_tx) -> void
+auto CRDFPlugin::UpdateTrackAudioChannels(const nlohmann::json& data) -> void
 {
 	// parse message and returns number of total toggles
-	std::map<std::string, int> channelFreq;
-	std::istringstream ssLine(line);
-	std::string strChnl;
-	int freqMe = FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency());
-	while (getline(ssLine, strChnl, ',')) {
-		size_t colon = strChnl.find(':');
-		std::string channel = strChnl.substr(0, colon);
-		try {
-			int frequency = FrequencyFromMHz(stod(strChnl.substr(colon + 1)));
-			if (!FrequencyCompare(freqMe, frequency)) {
-				channelFreq.insert({ channel, frequency });
-			}
+	// json format as described in TrackAudio SDK ["value"]
+	// internal process in kHz
+	std::unique_lock recLock(mtxRecord);
+	activeFrequencies.clear();
+	try
+	{
+		for (auto& elem : data["rx"]) {
+			std::string callsign = elem["pCallsign"];
+			int freq = FrequencyFromHz(elem["pFrequencyHz"]);
+			activeFrequencies[callsign].frequency = freq;
 		}
-		catch (...) {
-			DisplayDebugMessage("Error when parsing frequencies: " + strChnl);
-			continue;
+		for (auto& elem : data["tx"]) {
+			std::string callsign = elem["pCallsign"];
+			int freq = FrequencyFromHz(elem["pFrequencyHz"]);
+			activeFrequencies[callsign].frequency = freq;
+			activeFrequencies[callsign].tx = true;
 		}
 	}
+	catch (...)
+	{
+		activeFrequencies.clear();
+	}
+	recLock.unlock();
+	UpdateChannels();
+}
 
+auto CRDFPlugin::UpdateChannels(void) -> void
+{
+	std::shared_lock recLock(mtxRecord);
+	std::set<int> usingFrequencies;
 	for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
+		int chFreq = FrequencyFromMHz(chnl.GetFrequency());
+		std::string chName = chnl.GetName();
 		if (chnl.GetIsPrimary() || chnl.GetIsAtis()) { // make sure primary and ATIS are not affected
+			usingFrequencies.insert(chFreq);
 			continue;
 		}
-		std::string chName = chnl.GetName();
-		int chFreq = FrequencyFromMHz(chnl.GetFrequency());
-		auto it = channelFreq.find(chName);
-		if (it != channelFreq.end() && FrequencyCompare(it->second, chFreq)) { // allows 0.010 of deviation
-			channelFreq.erase(it);
-			goto _toggle_on;
+		auto it = activeFrequencies.find(chName);
+		if (it != activeFrequencies.end() && FrequencyCompare(it->second.frequency, chFreq)) {
+			ToggleChannels(chnl, it->second.tx, 1);
+			usingFrequencies.insert(chFreq);
+			continue;
 		}
-		else if (it == channelFreq.end()) {
-			auto itc = channelFreq.begin();
-			for (; itc != channelFreq.end() && !FrequencyCompare(itc->second, chFreq); itc++); // locate a matching freq
-			if (itc != channelFreq.end()) {
+		else if (it == activeFrequencies.end()) {
+			auto itc = std::find_if(activeFrequencies.begin(), activeFrequencies.end(),
+				[chFreq](const auto& i) {return FrequencyCompare(i.second.frequency, chFreq); }); // locate a matching freq
+			if (itc != activeFrequencies.end() && !usingFrequencies.contains(itc->second.frequency)) {
 				size_t posi = itc->first.find('_');
 				if (chName.starts_with(itc->first.substr(0, posi))) {
-					channelFreq.erase(itc);
-					goto _toggle_on;
+					ToggleChannels(chnl, it->second.tx, 1);
+					usingFrequencies.insert(chFreq);
+					continue;
 				}
 			}
 		}
-		// toggle off
-		if (mode_tx) {
-			ToggleChannels(chnl, 0, -1);
-		}
-		else {
-			ToggleChannels(chnl, -1, 0);
-		}
-		continue;
-	_toggle_on:
-		if (mode_tx) {
-			ToggleChannels(chnl, 1, -1);
-		}
-		else {
-			ToggleChannels(chnl, -1, 1);
-		}
+		ToggleChannels(chnl, 0, 0); // toggle off
 	}
 }
 
 auto CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx, const int& rx) -> void
 {
 	// pass tx/rx = -1 to skip
-	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
-		Channel.ToggleTextTransmit();
-		DisplayDebugMessage(
-			std::string("TX toggle: ") + Channel.GetName() + " frequency: " + std::to_string(Channel.GetFrequency())
-		);
-	}
 	if (rx >= 0 && rx != (int)Channel.GetIsTextReceiveOn()) {
 		Channel.ToggleTextReceive();
 		DisplayDebugMessage(
 			std::string("RX toggle: ") + Channel.GetName() + " frequency: " + std::to_string(Channel.GetFrequency())
+		);
+	}
+	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
+		Channel.ToggleTextTransmit();
+		DisplayDebugMessage(
+			std::string("TX toggle: ") + Channel.GetName() + " frequency: " + std::to_string(Channel.GetFrequency())
 		);
 	}
 }
@@ -630,24 +629,7 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			}
 			else if (msgType == "kFrequencyStateUpdate") {
 
-				std::string freqStateLine;
-				for (auto& elem : msgValue["tx"]) {
-					double freq = (int)elem["pFrequencyHz"] / 1000000.0;
-					std::string callsign = elem["pCallsign"];
-					std::string l = std::format("{}:{:.3f},", callsign, freq);
-					DisplayDebugMessage(l);
-					freqStateLine += l;
-				}
-				UpdateTrackAudioChannels(freqStateLine, true);
-				freqStateLine.clear();
-				for (auto& elem : msgValue["rx"]) {
-					double freq = (int)elem["pFrequencyHz"] / 1000000.0;
-					std::string callsign = elem["pCallsign"];
-					std::string l = std::format("{}:{:.3f},", callsign, freq);
-					DisplayDebugMessage(l);
-					freqStateLine += l;
-				}
-				UpdateTrackAudioChannels(freqStateLine, false);
+				UpdateTrackAudioChannels(msgValue);
 			}
 
 		}
@@ -657,19 +639,15 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 	}
 	else if (msg->type == ix::WebSocketMessageType::Open) {
 		DisplayDebugMessage("WS msg OPEN");
-		// use jthread to prevent blocking
-		auto GetTrackAudioVersion = [&] {
-			// check for TrackAudio presense
-			httplib::Client cli(std::format("http://{}", addressTrackAudio));
-			cli.set_connection_timeout(CONST_CONN_SEC);
-			if (auto res = cli.Get(TRACKAUDIO_PARAM_VERSION)) {
-				if (res->status == 200 && res->body.size()) {
-					DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressTrackAudio));
-					return;
-				}
+		// check for TrackAudio presense
+		httplib::Client cli(std::format("http://{}", addressTrackAudio));
+		cli.set_connection_timeout(TRACKAUDIO_TIMEOUT_SEC);
+		if (auto res = cli.Get(TRACKAUDIO_PARAM_VERSION)) {
+			if (res->status == 200 && res->body.size()) {
+				DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressTrackAudio));
+				return;
 			}
-			};
-		std::thread(GetTrackAudioVersion).detach();
+		}
 	}
 	else if (msg->type == ix::WebSocketMessageType::Error) {
 		DisplayDebugMessage(std::format("WS msg ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
@@ -683,8 +661,7 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 		messages.push(std::set<std::string>());
 		lock.unlock();
 		ProcessRDFQueue();
-		UpdateTrackAudioChannels("", true);
-		UpdateTrackAudioChannels("", false);
+		UpdateTrackAudioChannels(nlohmann::json());
 		DisplayWarnMessage("TrackAudio WebSocket disconnected!");
 	}
 	else {
