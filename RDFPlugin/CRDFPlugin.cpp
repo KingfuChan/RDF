@@ -68,18 +68,13 @@ CRDFPlugin::CRDFPlugin()
 
 	// initialize default settings
 	ix::initNetSystem();
-	ixTrackAudioSocket.setHandshakeTimeout(TRACKAUDIO_TIMEOUT_SEC);
-	ixTrackAudioSocket.setMaxWaitBetweenReconnectionRetries(TRACKAUDIO_HEARTBEAT_SEC * 2000); // ms
-	ixTrackAudioSocket.setPingInterval(TRACKAUDIO_HEARTBEAT_SEC);
-	ixTrackAudioSocket.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
-	screenSettings[-1] = std::make_shared<draw_settings>();
+	socketTrackAudio.setHandshakeTimeout(TRACKAUDIO_TIMEOUT_SEC);
+	socketTrackAudio.setMaxWaitBetweenReconnectionRetries(TRACKAUDIO_HEARTBEAT_SEC * 2000); // ms
+	socketTrackAudio.setPingInterval(TRACKAUDIO_HEARTBEAT_SEC);
+	socketTrackAudio.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
+	setScreen[-1] = std::make_shared<draw_settings>();
 	LoadTrackAudioSettings();
 	LoadDrawingSettings();
-
-	// random
-	rdGenerator = std::mt19937(randomDevice());
-	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
-	disDistance = std::normal_distribution<>(0, 1.0);
 
 	DisplayInfoMessage(std::format("Version {} Loaded.", MY_PLUGIN_VERSION));
 }
@@ -87,7 +82,7 @@ CRDFPlugin::CRDFPlugin()
 CRDFPlugin::~CRDFPlugin()
 {
 	// disconnect TrackAudio connection
-	ixTrackAudioSocket.stop();
+	socketTrackAudio.stop();
 
 	if (hiddenWindowRDF != nullptr) {
 		DestroyWindow(hiddenWindowRDF);
@@ -114,20 +109,20 @@ auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 			callsigns.push_back(s);
 		}
 		// skip existing callsigns and clear redundant
-		std::erase_if(activeStations, [&callsigns](const auto& item) {
+		std::erase_if(curTransmission, [&callsigns](const auto& item) {
 			return !std::erase(callsigns, item.first);
 			});
 		// add new stations
 		for (const auto& cs : callsigns) {
 			auto dp = GenerateDrawPosition(cs);
 			if (dp.radius > 0) {
-				activeStations[cs] = dp;
+				curTransmission[cs] = dp;
 			}
 		}
-		previousStations = activeStations;
+		preTransmission = curTransmission;
 	}
 	else {
-		activeStations.clear();
+		curTransmission.clear();
 	}
 }
 
@@ -175,11 +170,11 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	// deal with increment/decrement of stations
 	std::unique_lock flock(mtxFrequency);
 	if (receiveX) {
-		activeFrequencies[msgCallsign].frequency = msgFrequency;
-		activeFrequencies[msgCallsign].tx = transmitX;
+		curFrequencies[msgCallsign].frequency = msgFrequency;
+		curFrequencies[msgCallsign].tx = transmitX;
 	}
 	else {
-		activeFrequencies.erase(msgCallsign);
+		curFrequencies.erase(msgCallsign);
 	}
 	flock.unlock();
 	UpdateChannels();
@@ -210,19 +205,19 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	}
 
 	// initialize TrackAudio WebSocket
-	ixTrackAudioSocket.stop();
+	socketTrackAudio.stop();
 
 	// clears records
 	std::unique_lock lock1(mtxTransmission), lock2(mtxFrequency);
-	activeStations.clear();
-	previousStations.clear();
-	activeFrequencies.clear();
+	curTransmission.clear();
+	preTransmission.clear();
+	curFrequencies.clear();
 	lock1.unlock();
 	lock2.unlock();
 	UpdateChannels();
 
-	ixTrackAudioSocket.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
-	ixTrackAudioSocket.start();
+	socketTrackAudio.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
+	socketTrackAudio.start();
 }
 
 auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
@@ -236,7 +231,7 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 	DisplayDebugMessage(std::format("Loading drawing settings ID {}", screenID));
 	auto GetSetting = [&](const auto& varName) -> std::string {
 		if (screenID != -1) {
-			auto ds = screenVec[screenID]->GetDataFromAsr(varName);
+			auto ds = vecScreen[screenID]->GetDataFromAsr(varName);
 			if (ds != nullptr) {
 				return ds;
 			}
@@ -247,17 +242,17 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 
 	try
 	{
-		std::unique_lock<std::shared_mutex> lock(screenLock);
+		std::unique_lock<std::shared_mutex> lock(mtxScreen);
 		// initialize settings
 		std::shared_ptr<draw_settings> targetSetting;;
-		auto itrSetting = screenSettings.find(screenID);
-		if (itrSetting != screenSettings.end()) { // use existing
+		auto itrSetting = setScreen.find(screenID);
+		if (itrSetting != setScreen.end()) { // use existing
 			targetSetting = itrSetting->second;
 		}
 		else { // create new based on plugin setting
 			DisplayDebugMessage("Inserting new settings");
-			targetSetting = std::make_shared<draw_settings>(*screenSettings[-1]);
-			screenSettings.insert({ screenID, targetSetting });
+			targetSetting = std::make_shared<draw_settings>(*setScreen[-1]);
+			setScreen.insert({ screenID, targetSetting });
 		}
 
 		auto cstrRGB = GetSetting(SETTING_RGB);
@@ -350,7 +345,7 @@ auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& scr
 	// deals with settings available for asr
 	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
 		if (screenID != -1) {
-			screenVec[screenID]->AddAsrDataToBeSaved(varName, varDescr, val);
+			vecScreen[screenID]->AddAsrDataToBeSaved(varName, varDescr, val);
 			DisplayInfoMessage(std::format("{}: {} (ASR)", varDescr, val));
 		}
 		else {
@@ -360,8 +355,8 @@ auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& scr
 		};
 	try
 	{
-		std::unique_lock lock(screenLock);
-		std::shared_ptr<draw_settings> targetSetting = screenSettings[screenID];
+		std::unique_lock lock(mtxScreen);
+		std::shared_ptr<draw_settings> targetSetting = setScreen[screenID];
 		std::smatch match;
 		std::regex rxRGB(R"(^.RDF (RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
 		if (regex_match(command, match, rxRGB)) {
@@ -452,6 +447,13 @@ auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& scr
 auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 {
 	// return radius=0 for no draw
+
+	// randoms
+	static std::random_device randomDevice;
+	static std::mt19937 rdGenerator(randomDevice());
+	static std::uniform_real_distribution<> disBearing(0.0, 360.0);
+	static std::normal_distribution<> disDistance(0, 1.0);
+
 	auto radarTarget = RadarTargetSelect(callsign.c_str());
 	auto controller = ControllerSelect(callsign.c_str());
 	if (!radarTarget.IsValid() && controller.IsValid() && callsign.back() >= 'A' && callsign.back() <= 'Z') {
@@ -503,20 +505,20 @@ auto CRDFPlugin::TrackAudioTransmissionHandler(const nlohmann::json& data, const
 {
 	std::unique_lock tlock(mtxTransmission);
 	std::string callsign = data["callsign"];
-	auto it = activeStations.find(callsign);
-	if (it != activeStations.end()) {
+	auto it = curTransmission.find(callsign);
+	if (it != curTransmission.end()) {
 		if (rxEnd) {
-			activeStations.erase(it);
+			curTransmission.erase(it);
 		}
 	}
 	else if (!rxEnd) {
 		auto dp = GenerateDrawPosition(callsign);
 		if (dp.radius > 0) {
-			activeStations[callsign] = dp;
+			curTransmission[callsign] = dp;
 		}
 	}
-	if (activeStations.size()) {
-		previousStations = activeStations;
+	if (curTransmission.size()) {
+		preTransmission = curTransmission;
 	}
 }
 
@@ -526,17 +528,17 @@ auto CRDFPlugin::TrackAudioChannelHandler(const nlohmann::json& data) -> void
 	// json format as described in TrackAudio SDK ["value"]
 	// internal process in kHz
 	std::unique_lock flock(mtxFrequency);
-	activeFrequencies.clear();
+	curFrequencies.clear();
 	for (auto& elem : data["rx"]) {
 		std::string callsign = elem["pCallsign"];
 		int freq = FrequencyFromHz(elem["pFrequencyHz"]);
-		activeFrequencies[callsign].frequency = freq;
+		curFrequencies[callsign].frequency = freq;
 	}
 	for (auto& elem : data["tx"]) {
 		std::string callsign = elem["pCallsign"];
 		int freq = FrequencyFromHz(elem["pFrequencyHz"]);
-		activeFrequencies[callsign].frequency = freq;
-		activeFrequencies[callsign].tx = true;
+		curFrequencies[callsign].frequency = freq;
+		curFrequencies[callsign].tx = true;
 	}
 	flock.unlock();
 	UpdateChannels();
@@ -558,16 +560,16 @@ auto CRDFPlugin::UpdateChannels(void) -> void
 			usingFrequencies.insert(chFreq);
 			continue;
 		}
-		auto it1 = activeFrequencies.find(chName);
-		if (it1 != activeFrequencies.end() && FrequencyIsSame(it1->second.frequency, chFreq)) {
+		auto it1 = curFrequencies.find(chName);
+		if (it1 != curFrequencies.end() && FrequencyIsSame(it1->second.frequency, chFreq)) {
 			ToggleChannels(chnl, it1->second.tx, 1);
 			usingFrequencies.insert(chFreq);
 			continue;
 		}
-		else if (it1 == activeFrequencies.end()) {
-			auto it2 = std::find_if(activeFrequencies.begin(), activeFrequencies.end(),
+		else if (it1 == curFrequencies.end()) {
+			auto it2 = std::find_if(curFrequencies.begin(), curFrequencies.end(),
 				[chFreq](const auto& i) {return FrequencyIsSame(i.second.frequency, chFreq); }); // locate a matching freq
-			if (it2 != activeFrequencies.end()) {
+			if (it2 != curFrequencies.end()) {
 				size_t posi = it2->first.find('_');
 				if (chName.starts_with(it2->first.substr(0, posi))) {
 					ToggleChannels(chnl, it2->second.tx, 1);
@@ -601,11 +603,11 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 {
 	draw_settings res;
 	try {
-		std::shared_lock<std::shared_mutex> lock(screenLock);
-		res = *screenSettings.at(activeScreenID);
+		std::shared_lock<std::shared_mutex> lock(mtxScreen);
+		res = *setScreen.at(vidScreen);
 	}
 	catch (...) {
-		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}", (int)activeScreenID));
+		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}", (int)vidScreen));
 	}
 	return res;
 }
@@ -613,7 +615,7 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 auto CRDFPlugin::GetDrawStations(void) -> callsign_position
 {
 	std::shared_lock tlock(mtxTransmission);
-	return activeStations.empty() && GetAsyncKeyState(VK_MBUTTON) ? previousStations : activeStations;
+	return curTransmission.empty() && GetAsyncKeyState(VK_MBUTTON) ? preTransmission : curTransmission;
 }
 
 auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void
@@ -666,10 +668,10 @@ auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool CanBeCreated)
 	-> EuroScopePlugIn::CRadarScreen*
 {
-	size_t i = screenVec.size(); // should not be -1
+	size_t i = vecScreen.size(); // should not be -1
 	DisplayInfoMessage(std::format("Radio Direction Finder plugin activated on {}.", sDisplayName));
 	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(i);
-	screenVec.push_back(screen);
+	vecScreen.push_back(screen);
 	DisplayDebugMessage(std::format("Screen created: ID {}, type {}", i, sDisplayName));
 	return screen.get();
 }
@@ -684,12 +686,12 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 		if (regex_match(cmd, match, rxReload)) {
 			LoadTrackAudioSettings();
 			{
-				std::unique_lock lock(screenLock); // cautious for overlapped lock
-				screenSettings.clear();
-				screenSettings[-1] = std::make_shared<draw_settings>(); // initialize default settings
+				std::unique_lock lock(mtxScreen); // cautious for overlapped lock
+				setScreen.clear();
+				setScreen[-1] = std::make_shared<draw_settings>(); // initialize default settings
 			}
 			LoadDrawingSettings(-1); // restore plugin settings
-			for (auto& s : screenVec) { // reload asr settings
+			for (auto& s : vecScreen) { // reload asr settings
 				s->newAsrData.clear();
 				LoadDrawingSettings(s->m_ID);
 			}
@@ -709,7 +711,7 @@ auto CRDFPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan FlightPlan, EuroScope
 	if (!FlightPlan.IsValid() || ItemCode != TAG_ITEM_TYPE_RDF_STATE) return;
 	std::string callsign = FlightPlan.GetCallsign();
 	std::shared_lock tlock(mtxTransmission);
-	if (previousStations.contains(callsign)) {
+	if (preTransmission.contains(callsign)) {
 		strcpy_s(sItemString, 2, "!");
 	}
 }
