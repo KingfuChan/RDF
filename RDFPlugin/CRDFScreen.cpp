@@ -33,7 +33,7 @@ auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
 	if (Phase == EuroScopePlugIn::REFRESH_PHASE_BACK_BITMAP) {
-		GetRDFPlugin()->activeScreenID = m_ID;
+		GetRDFPlugin()->vidScreen = m_ID;
 		return;
 	}
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;

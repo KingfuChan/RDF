@@ -83,27 +83,22 @@ private:
 	friend class CRDFScreen;
 
 	// screen controls and drawing params
-	std::vector<std::shared_ptr<CRDFScreen>> screenVec; // index is screen ID (incremental int)
-	std::map<int, std::shared_ptr<draw_settings>> screenSettings; // screeID -> settings, ID=-1 used as plugin setting
-	std::atomic_int activeScreenID;
-	std::shared_mutex screenLock;
+	std::vector<std::shared_ptr<CRDFScreen>> vecScreen; // index is screen ID (incremental int)
+	std::map<int, std::shared_ptr<draw_settings>> setScreen; // screeID -> settings, ID=-1 used as plugin setting
+	std::atomic_int vidScreen;
+	std::shared_mutex mtxScreen;
 	auto GetDrawingParam(void) -> draw_settings const;
 
 	// drawing records and transmitting frequency records
-	std::shared_mutex mtxTransmission, mtxFrequency;
-	callsign_position activeStations;
-	callsign_position previousStations;
-	callsign_frequency activeFrequencies;
-
-	// randoms
-	std::random_device randomDevice;
-	std::mt19937 rdGenerator;
-	std::uniform_real_distribution<> disBearing;
-	std::normal_distribution<> disDistance;
+	std::shared_mutex mtxTransmission;
+	callsign_position curTransmission;
+	callsign_position preTransmission;
+	std::shared_mutex mtxFrequency;
+	callsign_frequency curFrequencies;
 
 	// TrackAudio WebSocket
 	std::string addressTrackAudio;
-	ix::WebSocket ixTrackAudioSocket;
+	ix::WebSocket socketTrackAudio;
 	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
 
 	// AFV standalone client controls
