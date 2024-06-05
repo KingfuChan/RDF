@@ -63,6 +63,9 @@ CRDFPlugin::CRDFPlugin()
 		DisplayWarnMessage("Unable to open communications for AFV bridge.");
 	}
 
+	// registration
+	RegisterTagItemType("RDF state", TAG_ITEM_TYPE_RDF_STATE);
+
 	// initialize default settings
 	ix::initNetSystem();
 	ixTrackAudioSocket.setHandshakeTimeout(TRACKAUDIO_TIMEOUT_SEC);
@@ -699,6 +702,16 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 		DisplayWarnMessage(e.what());
 	}
 	return false;
+}
+
+auto CRDFPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan FlightPlan, EuroScopePlugIn::CRadarTarget RadarTarget, int ItemCode, int TagData, char sItemString[16], int* pColorCode, COLORREF* pRGB, double* pFontSize) -> void
+{
+	if (!FlightPlan.IsValid() || ItemCode != TAG_ITEM_TYPE_RDF_STATE) return;
+	std::string callsign = FlightPlan.GetCallsign();
+	std::shared_lock tlock(mtxTransmission);
+	if (previousStations.contains(callsign)) {
+		strcpy_s(sItemString, 2, "!");
+	}
 }
 
 auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void
