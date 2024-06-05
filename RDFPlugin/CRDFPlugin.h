@@ -27,6 +27,8 @@ constexpr auto SETTING_HIGH_ALTITUDE = "HighAltitude";
 constexpr auto SETTING_LOW_PRECISION = "LowPrecision";
 constexpr auto SETTING_HIGH_PRECISION = "HighPrecision";
 constexpr auto SETTING_DRAW_CONTROLLERS = "DrawControllers";
+// Tag item type
+const int TAG_ITEM_TYPE_RDF_STATE = 1001; // RDF state
 
 typedef struct _draw_position {
 	EuroScopePlugIn::CPosition position;
@@ -166,5 +168,5 @@ public:
 	auto HiddenWndProcessAFVMessage(const std::string& message) -> void;
 	virtual auto OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated) -> EuroScopePlugIn::CRadarScreen*;
 	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;
-
+	virtual auto OnGetTagItem(EuroScopePlugIn::CFlightPlan FlightPlan, EuroScopePlugIn::CRadarTarget RadarTarget, int ItemCode, int TagData, char sItemString[16], int* pColorCode, COLORREF* pRGB, double* pFontSize) -> void;
 };
