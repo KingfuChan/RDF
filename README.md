@@ -2,25 +2,25 @@
 
 Radio Direction Finder plugin for [EuroScope](https://www.euroscope.hu). Still actively maintained.
 
-## Support *VectorAudio*/0.5.0+
+## *TrackAudio* & *Audio for VATSIM Standalone Client* Support
 
-[*VectorAudio*](https://github.com/pierr3/VectorAudio) is an officially recognized multi-platform Audio-For-VATSIM ATC client for Windows, macOS and Linux. This improved RDF plugin utilizes *VectorAudio*'s SDK and sends HTTP GET requests to get transmitting stations and RX/TX status.
+Supports *Audio for VATSIM standalone client* through hidden window messaging. This has been used since the birth of AFV.
+
+[*TrackAudio*](https://github.com/pierr3/TrackAudio) is a multi-platform Audio-For-VATSIM ATC client for Windows, macOS and Linux. This improved RDF plugin utilizes [*TrackAudio*'s WebSocket SDK](https://github.com/pierr3/TrackAudio/wiki/SDK-documentation) to synchronize active frequencies and to achieve radio-direction-finding.
 
 ## More Customizations
 
++ (Existing feature) RGB settings for circle or line, and different color for concurrent transmission.
 + Random radio direction offsets to simulate measuring errors in real life.
 + Offers variable precision at different altitudes.
 + Hide radio-direction-finders for low altitude aircrafts.
 + Draw controllers as desired.
-+ (Existing feature) RGB settings for circle or line, and different color for concurrent transmission.
 + ASR-specific drawing parameters including colors, precision and filtering.
++ Tag item type **RDF state** to indicate previously transmitting aircraft.
 
 ## Integrate afv-bridge
 
-Do the same work as [*afv-euroscope-bridge*](https://github.com/AndyTWF/afv-euroscope-bridge). Supports both *VectorAudio* and *Audio for VATSIM standalone client*. When a new radio station is set up for RX/TX, RDF detects its status and toggles respective channels in EuroScope.
-
-+ For *Audio for VATSIM standalone client*, toggles are made instantly.
-+ For *VectorAudio*, the status are updated at an interval of **VectorAudioRetryInterval**, by default 5 seconds. See below.
+Do the same work as [*afv-euroscope-bridge*](https://github.com/AndyTWF/afv-euroscope-bridge). Supports both *TrackAudio* and *Audio for VATSIM standalone client*. When a new radio station is set up for RX/TX, RDF detects its status and toggles respective channels in EuroScope.
 
 ## Configurations
 
@@ -30,10 +30,7 @@ This table shows all configurable items.
 
 | Entry Name                | Command Line Keyword | Range       | Default Value   |
 | ------------------------- | -------------------- | ----------- | --------------- |
-| VectorAudioAddress        | ADDRESS              |             | 127.0.0.1:49080 |
-| VectorAudioTimeout        | TIMEOUT              | [100, 1000] | 300             |
-| VectorAudioPollInterval   | POLL                 | [100, +inf) | 200             |
-| VectorAudioRetryInterval  | RETRY                | [1, +inf)   | 5               |
+| Endpoint                  |                      |             | 127.0.0.1:49080 |
 | RGB                       | RGB                  | RRR:GGG:BBB | 255:255:255     |
 | ConcurrentTransmissionRGB | CTRGB                | RRR:GGG:BBB | 255:0:0         |
 | Radius                    | RADIUS               | (0, +inf)   | 20              |
@@ -45,17 +42,14 @@ This table shows all configurable items.
 | HighPrecision             | PRECISION H_____     | [0, +inf)   | 0               |
 | DrawControllers           | CONTROLLER           | 0 or 1      | 0               |
 
-For command line configurations, use `.RDF KEYWORD VALUE`, e.g. `.RDF CTRGB 0:255:255`. Replace "_____" with value in low/high altitude/precision directly, e.g. `.RDF ALTITUDE L10000`. All command line functions are case-insensitive. Command line settings will be saved to plugin settings file (defined in .prf file).
+For command line configurations, use `.RDF KEYWORD VALUE`, e.g. `.RDF CTRGB 0:255:255`. Replace "_____" with value in low/high altitude/precision directly, e.g. `.RDF ALTITUDE L10000`. All command line functions are case-insensitive.
 
 In settings files the default is like the following:
 
 ```text
 PLUGINS
 <eventually existing configuration lines>
-RDF Plugin for Euroscope:VectorAudioAddress:127.0.0.1:49080
-RDF Plugin for Euroscope:VectorAudioTimeout:300
-RDF Plugin for Euroscope:VectorAudioPollInterval:200
-RDF Plugin for Euroscope:VectorAudioRetryInterval:5
+RDF Plugin for Euroscope:Endpoint:127.0.0.1:49080
 RDF Plugin for Euroscope:RGB:255:255:255
 RDF Plugin for Euroscope:ConcurrentTransmissionRGB:255:0:0
 RDF Plugin for Euroscope:Radius:20
@@ -69,21 +63,24 @@ RDF Plugin for Euroscope:DrawControllers:0
 END
 ```
 
-+ **VectorAudioAddress** should include address and port only. E.g. 127.0.0.1:49080 or localhost:49080, etc.
-+ **VectorAudioTimeout** is in milliseconds. For HTTP requests.
-+ **VectorAudioPollInterval** is in milliseconds. For transmission inquiries.
-+ **VectorAudioRetryInterval** is in seconds. For re-establishing connection and updating RX/TX channels.
++ **Endpoint** should include address and port only. E.g. 127.0.0.1:49080 or localhost:49080, etc.
 + **RGB, ConcurrentTransmissionRGB**, see [README](#readme-for-legacy-versions) below.
 + **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
-+ **DrawControllers** is compatible with both *VectorAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be circled as well but without offset. 0 means OFF and other numeric value means ON.
++ **DrawControllers** is compatible with both *TrackAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be drawn as well. 0 means OFF and other numeric value means ON.
 
 When EuroScope is running, you can reload settings in *Settings File Setup* and then enter `.RDF RELOAD` (case-insensitive) in command line.
 
+> [!TIP]
+> `.RDF RELOAD` can also be used to reset TrackAudio connection.
+>
+> To change the endpoint for *TrackAudio* without exitting EuroScope, you may modify plugin settings file, then reload settings file inside EuroScope and run this command.
+
 ## Per ASR Configurations
 
-Since v1.3.5, all configurations made by command line funcions, except those related to *VectorAudio*, will only be effective in current ASR and will be saved to ASR instead of plugin settings file. An RDF-configured ASR may contain the following lines, whose value should be consistent with the above:
+Since v1.3.5, all configurations made by command line funcions, except those related to *TrackAudio*, will only be effective in current ASR and will be saved to ASR instead of plugin settings file. An RDF-configured ASR may contain the following lines, whose value should be consistent with the above:
 
 ```text
+; These are not default values!
 PLUGIN:RDF Plugin for Euroscope:RGB:255:255:255
 PLUGIN:RDF Plugin for Euroscope:ConcurrentTransmissionRGB:255:255:0
 PLUGIN:RDF Plugin for Euroscope:Radius:20
@@ -96,9 +93,12 @@ PLUGIN:RDF Plugin for Euroscope:HighPrecision:0
 PLUGIN:RDF Plugin for Euroscope:DrawControllers:1
 ```
 
-When an ASR is opened, the plugin will use the configurations in the sequence of **ASR - plugin settings file - default value**.
+When an ASR is opened, the plugin will use the configurations in the sequence of **ASR > plugin settings file > default value**.
 
-`.RDF RELOAD` commmand line will discard all command line configurations in this session and restore ASR-specific configurations. One can change global settings by modifying plugin settings file, reloading settings in EuroScope dialog, and executing this command.
+> [!NOTE]
+> `.RDF RELOAD` commmand line will discard all command line configurations in this session and restore ASR-specific configurations.
+>
+> You may change global settings by modifying plugin settings file, reloading settings in EuroScope dialog, and executing this command.
 
 ## Random Offset Schematic
 
@@ -138,9 +138,15 @@ When an ASR is opened, the plugin will use the configurations in the sequence of
 
 ## Credits
 
-+ [pierr3/VectorAudio](https://github.com/pierr3/VectorAudio): initiative.
++ [pierr3/VectorAudio](https://github.com/pierr3/VectorAudio) & [pierr3/TrackAudio](https://github.com/pierr3/TrackAudio): initiative.
 + [chembergj/RDF](https://github.com/chembergj/RDF): basic drawings.
 + [AndyTWF/afv-euroscope-bridge](https://github.com/AndyTWF/afv-euroscope-bridge): *Audio for VATSIM standalone client* message handling.
 + [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib): HTTP library.
++ [machinezone/IXWebSocket](https://github.com/machinezone/IXWebSocket): WebSocket library.
++ [nlohmann/json](https://github.com/nlohmann/json): json handling.
+
+## Developing
+
+[Vcpkg](https://vcpkg.io/), either standalone or bundled with Visual Studio v17.6+, is required. Run `vcpkg integrate install` in Visual Studio CMD/Powershell and build directly.
 
 ## [README for Legacy Versions](https://github.com/chembergj/RDF#rdf)
