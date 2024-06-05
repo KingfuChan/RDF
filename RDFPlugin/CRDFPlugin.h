@@ -7,15 +7,15 @@
 // Plugin info
 constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
 constexpr auto MY_PLUGIN_VERSION = "1.4.0";
-constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
-constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3";
+constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan";
+constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3 License, Copyright (c) 2023 Kingfu Chan";
 // TrackAudio URLs and parameters
 constexpr auto TRACKAUDIO_PARAM_VERSION = "/*";
 constexpr auto TRACKAUDIO_PARAM_WS = "/ws";
 constexpr auto TRACKAUDIO_TIMEOUT_SEC = 1;
 constexpr auto TRACKAUDIO_HEARTBEAT_SEC = 30;
 // Global settings
-constexpr auto SETTING_WEBSOCKET_ADDRESS = "WebSocketAddress";
+constexpr auto SETTING_ENDPOINT = "Endpoint";
 // Shared settings (ASR specific)
 constexpr auto SETTING_RGB = "RGB";
 constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
@@ -33,7 +33,7 @@ typedef struct _draw_position {
 	double radius;
 	_draw_position(void) :
 		position(),
-		radius(20)
+		radius(0) // invalid value
 	{};
 	_draw_position(EuroScopePlugIn::CPosition _position, double _radius) :
 		position(_position),
@@ -107,8 +107,6 @@ private:
 	// AFV standalone client controls
 	HWND hiddenWindowRDF = NULL;
 	HWND hiddenWindowAFV = NULL;
-	std::mutex messageLock; // Lock for the message queue
-	std::queue<std::set<std::string>> messages; // Internal message quque
 	WNDCLASS windowClassRDF = {
 	   NULL,
 	   HiddenWindowRDF,
@@ -141,7 +139,8 @@ private:
 	auto ParseDrawingSettings(const std::string& command, const int& screenID = -1) -> bool;
 
 	// functional things 
-	auto ProcessRDFQueue(void) -> void;
+	auto GenerateDrawPosition(std::string callsign) -> draw_position;
+	auto TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void;
 	auto TrackAudioChannelHandler(const nlohmann::json& data) -> void;
 	auto UpdateChannels(void) -> void;
 	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
@@ -162,6 +161,7 @@ private:
 public:
 	CRDFPlugin();
 	~CRDFPlugin();
+	auto GetDrawStations(void) -> callsign_position;
 	auto HiddenWndProcessRDFMessage(const std::string& message) -> void;
 	auto HiddenWndProcessAFVMessage(const std::string& message) -> void;
 	virtual auto OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated) -> EuroScopePlugIn::CRadarScreen*;

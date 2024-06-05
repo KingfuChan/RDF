@@ -66,7 +66,7 @@ CRDFPlugin::CRDFPlugin()
 	// initialize default settings
 	ix::initNetSystem();
 	ixTrackAudioSocket.setHandshakeTimeout(TRACKAUDIO_TIMEOUT_SEC);
-	ixTrackAudioSocket.setMaxWaitBetweenReconnectionRetries(TRACKAUDIO_HEARTBEAT_SEC);
+	ixTrackAudioSocket.setMaxWaitBetweenReconnectionRetries(TRACKAUDIO_HEARTBEAT_SEC * 2000); // ms
 	ixTrackAudioSocket.setPingInterval(TRACKAUDIO_HEARTBEAT_SEC);
 	ixTrackAudioSocket.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
 	screenSettings[-1] = std::make_shared<draw_settings>();
@@ -101,22 +101,31 @@ CRDFPlugin::~CRDFPlugin()
 
 auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 {
-	std::unique_lock<std::mutex> lock(messageLock);
+	std::unique_lock tlock(mtxTransmission);
 	if (message.size()) {
 		DisplayDebugMessage(std::string("AFV message: ") + message);
-		std::set<std::string> strings;
+		std::vector<std::string> callsigns;
 		std::istringstream f(message);
 		std::string s;
 		while (std::getline(f, s, ':')) {
-			strings.insert(s);
+			callsigns.push_back(s);
 		}
-		messages.push(strings);
+		// skip existing callsigns and clear redundant
+		std::erase_if(activeStations, [&callsigns](const auto& item) {
+			return !std::erase(callsigns, item.first);
+			});
+		// add new stations
+		for (const auto& cs : callsigns) {
+			auto dp = GenerateDrawPosition(cs);
+			if (dp.radius > 0) {
+				activeStations[cs] = dp;
+			}
+		}
+		previousStations = activeStations;
 	}
 	else {
-		messages.push(std::set<std::string>());
+		activeStations.clear();
 	}
-	lock.unlock();
-	ProcessRDFQueue();
 }
 
 auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
@@ -191,7 +200,7 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 {
 	addressTrackAudio = "127.0.0.1:49080";
-	const char* cstrAddrVA = GetDataFromSettings(SETTING_WEBSOCKET_ADDRESS);
+	const char* cstrAddrVA = GetDataFromSettings(SETTING_ENDPOINT);
 	if (cstrAddrVA != nullptr) {
 		addressTrackAudio = cstrAddrVA;
 		DisplayDebugMessage(std::string("Address: ") + addressTrackAudio);
@@ -199,6 +208,16 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 
 	// initialize TrackAudio WebSocket
 	ixTrackAudioSocket.stop();
+
+	// clears records
+	std::unique_lock lock1(mtxTransmission), lock2(mtxFrequency);
+	activeStations.clear();
+	previousStations.clear();
+	activeFrequencies.clear();
+	lock1.unlock();
+	lock2.unlock();
+	UpdateChannels();
+
 	ixTrackAudioSocket.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
 	ixTrackAudioSocket.start();
 }
@@ -338,7 +357,7 @@ auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& scr
 		};
 	try
 	{
-		std::unique_lock<std::shared_mutex> lock(screenLock);
+		std::unique_lock lock(screenLock);
 		std::shared_ptr<draw_settings> targetSetting = screenSettings[screenID];
 		std::smatch match;
 		std::regex rxRGB(R"(^.RDF (RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
@@ -427,76 +446,74 @@ auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& scr
 	return false;
 }
 
-auto CRDFPlugin::ProcessRDFQueue(void) -> void
+auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 {
-	std::lock_guard<std::mutex> lock(messageLock);
-	// Process all incoming messages
-	while (messages.size() > 0) {
-		std::set<std::string> amessage = messages.front();
-		messages.pop();
-
-		// remove existing records
-		for (auto itr = activeStations.begin(); itr != activeStations.end();) {
-			if (amessage.erase(itr->first)) { // remove still transmitting from message
-				itr++;
-			}
-			else {
-				// no removal, means stopped transmission, need to also remove from map
-				activeStations.erase(itr++);
-			}
-		}
-
-		// add new active transmitting records
-		for (const auto& callsign : amessage) {
-			auto radarTarget = RadarTargetSelect(callsign.c_str());
-			auto controller = ControllerSelect(callsign.c_str());
-			if (!radarTarget.IsValid() && controller.IsValid() && callsign.back() >= 'A' && callsign.back() <= 'Z') {
-				// dump last character and find callsign again
-				std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
-				radarTarget = RadarTargetSelect(callsign_dump.c_str());
-			}
-			auto params = GetDrawingParam();
-			int circleRadius = params.circleRadius;
-			int circlePrecision = params.circlePrecision;
-			int circleThreshold = params.circleThreshold;
-			int lowAltitude = params.lowAltitude;
-			int highAltitude = params.highAltitude;
-			int lowPrecision = params.lowPrecision;
-			int highPrecision = params.highPrecision;
-			bool drawController = params.drawController;
-			if (radarTarget.IsValid()) {
-				int alt = radarTarget.GetPosition().GetPressureAltitude();
-				if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
-					EuroScopePlugIn::CPosition pos = radarTarget.GetPosition().GetPosition();
-					double radius = circleRadius;
-					// determines offset
-					double offset = circlePrecision;
-					if (circleThreshold >= 0 && lowPrecision > 0) {
-						if (highPrecision > 0 && highAltitude > lowAltitude) {
-							offset = (double)lowPrecision + (double)(alt - lowAltitude) * (double)(highPrecision - lowPrecision) / (double)(highAltitude - lowAltitude);
-						}
-						else {
-							offset = lowPrecision > 0 ? lowPrecision : circlePrecision;
-						}
-						radius = offset;
-					}
-					if (offset > 0) { // add random offset
-						double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
-						double bearing = disBearing(rdGenerator);
-						AddOffset(pos, bearing, distance);
-					}
-					activeStations[callsign] = { pos, radius };
+	// return radius=0 for no draw
+	auto radarTarget = RadarTargetSelect(callsign.c_str());
+	auto controller = ControllerSelect(callsign.c_str());
+	if (!radarTarget.IsValid() && controller.IsValid() && callsign.back() >= 'A' && callsign.back() <= 'Z') {
+		// dump last character and find callsign again
+		std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
+		radarTarget = RadarTargetSelect(callsign_dump.c_str());
+	}
+	auto params = GetDrawingParam();
+	int circleRadius = params.circleRadius;
+	int circlePrecision = params.circlePrecision;
+	int circleThreshold = params.circleThreshold;
+	int lowAltitude = params.lowAltitude;
+	int highAltitude = params.highAltitude;
+	int lowPrecision = params.lowPrecision;
+	int highPrecision = params.highPrecision;
+	bool drawController = params.drawController;
+	if (radarTarget.IsValid()) {
+		int alt = radarTarget.GetPosition().GetPressureAltitude();
+		if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
+			EuroScopePlugIn::CPosition pos = radarTarget.GetPosition().GetPosition();
+			double radius = circleRadius;
+			// determines offset
+			double offset = circlePrecision;
+			if (circleThreshold >= 0 && (lowPrecision > 0 || circlePrecision > 0)) {
+				if (highPrecision > 0 && highAltitude > lowAltitude) {
+					offset = (double)lowPrecision + (double)(alt - lowAltitude) * (double)(highPrecision - lowPrecision) / (double)(highAltitude - lowAltitude);
 				}
+				else {
+					offset = lowPrecision > 0 ? lowPrecision : circlePrecision;
+				}
+				radius = offset;
 			}
-			else if (drawController && controller.IsValid()) {
-				auto pos = controller.GetPosition();
-				activeStations[callsign] = { pos, (double)lowPrecision };
+			if (offset > 0) { // add random offset
+				double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
+				double bearing = disBearing(rdGenerator);
+				AddOffset(pos, bearing, distance);
 			}
+			return draw_position(pos, radius);
 		}
+	}
+	else if (drawController && controller.IsValid()) {
+		auto pos = controller.GetPosition();
+		return draw_position(pos, circleRadius);
+	}
+	return draw_position();
+}
 
-		if (!activeStations.empty()) {
-			previousStations = activeStations;
+auto CRDFPlugin::TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void
+{
+	std::unique_lock tlock(mtxTransmission);
+	std::string callsign = data["callsign"];
+	auto it = activeStations.find(callsign);
+	if (it != activeStations.end()) {
+		if (rxEnd) {
+			activeStations.erase(it);
 		}
+	}
+	else if (!rxEnd) {
+		auto dp = GenerateDrawPosition(callsign);
+		if (dp.radius > 0) {
+			activeStations[callsign] = dp;
+		}
+	}
+	if (activeStations.size()) {
+		previousStations = activeStations;
 	}
 }
 
@@ -507,23 +524,16 @@ auto CRDFPlugin::TrackAudioChannelHandler(const nlohmann::json& data) -> void
 	// internal process in kHz
 	std::unique_lock flock(mtxFrequency);
 	activeFrequencies.clear();
-	try
-	{
-		for (auto& elem : data["rx"]) {
-			std::string callsign = elem["pCallsign"];
-			int freq = FrequencyFromHz(elem["pFrequencyHz"]);
-			activeFrequencies[callsign].frequency = freq;
-		}
-		for (auto& elem : data["tx"]) {
-			std::string callsign = elem["pCallsign"];
-			int freq = FrequencyFromHz(elem["pFrequencyHz"]);
-			activeFrequencies[callsign].frequency = freq;
-			activeFrequencies[callsign].tx = true;
-		}
+	for (auto& elem : data["rx"]) {
+		std::string callsign = elem["pCallsign"];
+		int freq = FrequencyFromHz(elem["pFrequencyHz"]);
+		activeFrequencies[callsign].frequency = freq;
 	}
-	catch (...)
-	{
-		activeFrequencies.clear();
+	for (auto& elem : data["tx"]) {
+		std::string callsign = elem["pCallsign"];
+		int freq = FrequencyFromHz(elem["pFrequencyHz"]);
+		activeFrequencies[callsign].frequency = freq;
+		activeFrequencies[callsign].tx = true;
 	}
 	flock.unlock();
 	UpdateChannels();
@@ -597,58 +607,48 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 	return res;
 }
 
+auto CRDFPlugin::GetDrawStations(void) -> callsign_position
+{
+	std::shared_lock tlock(mtxTransmission);
+	return activeStations.empty() && GetAsyncKeyState(VK_MBUTTON) ? previousStations : activeStations;
+}
+
 auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void
 {
 	try {
+		DisplayDebugMessage(std::format("WS msg type {}: {}", (int)msg->type, msg->str));
 		if (msg->type == ix::WebSocketMessageType::Message) {
-
-			DisplayDebugMessage(std::format("WS msg: {}", msg->str));
 			auto data = nlohmann::json::parse(msg->str);
 			std::string msgType = data["type"];
 			nlohmann::json msgValue = data["value"];
 			if (msgType == "kRxBegin") {
-
-
+				TrackAudioTransmissionHandler(msgValue, false);
 			}
 			else if (msgType == "kRxEnd") {
-
-
+				TrackAudioTransmissionHandler(msgValue, true);
 			}
 			else if (msgType == "kFrequencyStateUpdate") {
-
 				TrackAudioChannelHandler(msgValue);
 			}
-
 		}
 		else if (msg->type == ix::WebSocketMessageType::Open) {
-			DisplayDebugMessage("WS msg OPEN");
 			// check for TrackAudio presense
 			httplib::Client cli(std::format("http://{}", addressTrackAudio));
 			cli.set_connection_timeout(TRACKAUDIO_TIMEOUT_SEC);
 			if (auto res = cli.Get(TRACKAUDIO_PARAM_VERSION)) {
 				if (res->status == 200 && res->body.size()) {
 					DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressTrackAudio));
-					return;
 				}
 			}
 		}
 		else if (msg->type == ix::WebSocketMessageType::Error) {
 			DisplayDebugMessage(std::format("WS msg ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
 				msg->errorInfo.reason, (int)msg->errorInfo.retries, msg->errorInfo.wait_time, msg->errorInfo.http_status));
-
 		}
 		else if (msg->type == ix::WebSocketMessageType::Close) {
 			DisplayDebugMessage(std::format("WS msg CLOSE! code: {}, reason: {}",
 				(int)msg->closeInfo.code, msg->closeInfo.reason));
-			std::unique_lock lock(messageLock);
-			messages.push(std::set<std::string>());
-			lock.unlock();
-			ProcessRDFQueue();
-			TrackAudioChannelHandler(R"({"tx":[],"rx":[]})"_json);
 			DisplayWarnMessage("TrackAudio WebSocket disconnected!");
-		}
-		else {
-			DisplayDebugMessage(std::format("WS msg {}", (int)msg->type));
 		}
 	}
 	catch (std::exception& exc) {
@@ -681,7 +681,7 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 		if (regex_match(cmd, match, rxReload)) {
 			LoadTrackAudioSettings();
 			{
-				std::unique_lock<std::shared_mutex> lock(screenLock); // cautious for overlapped lock
+				std::unique_lock lock(screenLock); // cautious for overlapped lock
 				screenSettings.clear();
 				screenSettings[-1] = std::make_shared<draw_settings>(); // initialize default settings
 			}
