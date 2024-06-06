@@ -6,19 +6,16 @@
 
 // Plugin info
 constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-constexpr auto MY_PLUGIN_VERSION = "1.3.5";
-constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan, Claus Hemberg Joergensen";
-constexpr auto MY_PLUGIN_COPYRIGHT = "Free to be distributed as source code";
-// VectorAudio URLs
-constexpr auto VECTORAUDIO_PARAM_VERSION = "/*";
-constexpr auto VECTORAUDIO_PARAM_TRANSMIT = "/transmitting";
-constexpr auto VECTORAUDIO_PARAM_TX = "/tx";
-constexpr auto VECTORAUDIO_PARAM_RX = "/rx";
+constexpr auto MY_PLUGIN_VERSION = "1.4.0";
+constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan";
+constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3 License, Copyright (c) 2023 Kingfu Chan";
+// TrackAudio URLs and parameters
+constexpr auto TRACKAUDIO_PARAM_VERSION = "/*";
+constexpr auto TRACKAUDIO_PARAM_WS = "/ws";
+constexpr auto TRACKAUDIO_TIMEOUT_SEC = 1;
+constexpr auto TRACKAUDIO_HEARTBEAT_SEC = 30;
 // Global settings
-constexpr auto SETTING_VECTORAUDIO_ADDRESS = "VectorAudioAddress";
-constexpr auto SETTING_VECTORAUDIO_TIMEOUT = "VectorAudioTimeout";
-constexpr auto SETTING_VECTORAUDIO_POLL_INTERVAL = "VectorAudioPollInterval";
-constexpr auto SETTING_VECTORAUDIO_RETRY_INTERVAL = "VectorAudioRetryInterval";
+constexpr auto SETTING_ENDPOINT = "Endpoint";
 // Shared settings (ASR specific)
 constexpr auto SETTING_RGB = "RGB";
 constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
@@ -30,13 +27,15 @@ constexpr auto SETTING_HIGH_ALTITUDE = "HighAltitude";
 constexpr auto SETTING_LOW_PRECISION = "LowPrecision";
 constexpr auto SETTING_HIGH_PRECISION = "HighPrecision";
 constexpr auto SETTING_DRAW_CONTROLLERS = "DrawControllers";
+// Tag item type
+const int TAG_ITEM_TYPE_RDF_STATE = 1001; // RDF state
 
 typedef struct _draw_position {
 	EuroScopePlugIn::CPosition position;
 	double radius;
 	_draw_position(void) :
 		position(),
-		radius(20)
+		radius(0) // invalid value
 	{};
 	_draw_position(EuroScopePlugIn::CPosition _position, double _radius) :
 		position(_position),
@@ -72,44 +71,39 @@ typedef struct _draw_settings {
 	};
 } draw_settings;
 
+typedef struct _freq_data {
+	int frequency = 199999;
+	bool tx = false;
+} freq_data;
+typedef std::map<std::string, freq_data> callsign_frequency;
+
 class CRDFPlugin : public EuroScopePlugIn::CPlugIn
 {
 private:
 	friend class CRDFScreen;
 
 	// screen controls and drawing params
-	std::vector<std::shared_ptr<CRDFScreen>> screenVec; // index is screen ID (incremental int)
-	std::map<int, std::shared_ptr<draw_settings>> screenSettings; // screeID -> settings, ID=-1 used as plugin setting
-	std::atomic_int activeScreenID;
-	std::shared_mutex screenLock;
+	std::vector<std::shared_ptr<CRDFScreen>> vecScreen; // index is screen ID (incremental int)
+	std::map<int, std::shared_ptr<draw_settings>> setScreen; // screeID -> settings, ID=-1 used as plugin setting
+	std::atomic_int vidScreen;
+	std::shared_mutex mtxScreen;
 	auto GetDrawingParam(void) -> draw_settings const;
 
-	// drawing records
-	callsign_position activeStations;
-	callsign_position previousStations;
+	// drawing records and transmitting frequency records
+	std::shared_mutex mtxTransmission;
+	callsign_position curTransmission;
+	callsign_position preTransmission;
+	std::shared_mutex mtxFrequency;
+	callsign_frequency curFrequencies;
 
-	// randoms
-	std::random_device randomDevice;
-	std::mt19937 rdGenerator;
-	std::uniform_real_distribution<> disBearing;
-	std::normal_distribution<> disDistance;
-
-	// VectorAudio controls
-	std::string addressVectorAudio;
-	int connectionTimeout, pollInterval, retryInterval;
-	// thread controls
-	std::thread threadVectorAudioMain, threadVectorAudioTXRX;
-	std::condition_variable cvThreadMain, cvThreadTXRX;
-	std::mutex threadMainLock, threadTXRXLock;
-	std::atomic_bool threadRunning = true;
-	auto VectorAudioMainLoop(void) -> void;
-	auto VectorAudioTXRXLoop(void) -> void;
+	// TrackAudio WebSocket
+	std::string addressTrackAudio;
+	ix::WebSocket socketTrackAudio;
+	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
 
 	// AFV standalone client controls
 	HWND hiddenWindowRDF = NULL;
 	HWND hiddenWindowAFV = NULL;
-	std::mutex messageLock; // Lock for the message queue
-	std::queue<std::set<std::string>> messages; // Internal message quque
 	WNDCLASS windowClassRDF = {
 	   NULL,
 	   HiddenWindowRDF,
@@ -137,13 +131,15 @@ private:
 
 	// settings related functions
 	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
-	auto LoadVectorAudioSettings(void) -> void;
+	auto LoadTrackAudioSettings(void) -> void;
 	auto LoadDrawingSettings(const int& screenID = -1) -> void;
 	auto ParseDrawingSettings(const std::string& command, const int& screenID = -1) -> bool;
 
 	// functional things 
-	auto ProcessRDFQueue(void) -> void;
-	auto UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void;
+	auto GenerateDrawPosition(std::string callsign) -> draw_position;
+	auto TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void;
+	auto TrackAudioChannelHandler(const nlohmann::json& data) -> void;
+	auto UpdateChannels(void) -> void;
 	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
 
 	// messages
@@ -162,9 +158,10 @@ private:
 public:
 	CRDFPlugin();
 	~CRDFPlugin();
+	auto GetDrawStations(void) -> callsign_position;
 	auto HiddenWndProcessRDFMessage(const std::string& message) -> void;
 	auto HiddenWndProcessAFVMessage(const std::string& message) -> void;
 	virtual auto OnRadarScreenCreated(const char* sDisplayName, bool NeedRadarContent, bool GeoReferenced, bool CanBeSaved, bool CanBeCreated) -> EuroScopePlugIn::CRadarScreen*;
 	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;
-
+	virtual auto OnGetTagItem(EuroScopePlugIn::CFlightPlan FlightPlan, EuroScopePlugIn::CRadarTarget RadarTarget, int ItemCode, int TagData, char sItemString[16], int* pColorCode, COLORREF* pRGB, double* pFontSize) -> void;
 };

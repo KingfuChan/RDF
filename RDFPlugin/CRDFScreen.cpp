@@ -33,22 +33,14 @@ auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
 	if (Phase == EuroScopePlugIn::REFRESH_PHASE_BACK_BITMAP) {
-		GetRDFPlugin()->activeScreenID = m_ID;
+		GetRDFPlugin()->vidScreen = m_ID;
 		return;
 	}
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
 
-	callsign_position drawPosition = GetRDFPlugin()->activeStations;
+	callsign_position drawPosition = GetRDFPlugin()->GetDrawStations();
 	if (drawPosition.empty()) {
-		if (GetAsyncKeyState(VK_MBUTTON)) {
-			drawPosition = GetRDFPlugin()->previousStations;
-			if (drawPosition.empty()) {
-				return;
-			}
-		}
-		else {
-			return;
-		}
+		return;
 	}
 
 	draw_settings params = GetRDFPlugin()->GetDrawingParam();
@@ -91,7 +83,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 				}
 				else {
 					// using pixel as boundary xy
-					Ellipse(hDC, pPos.x - round(drawR), pPos.y - round(drawR), pPos.x + round(drawR), pPos.y + round(drawR));
+					Ellipse(hDC, pPos.x - (int)round(drawR), pPos.y - (int)round(drawR), pPos.x + (int)round(drawR), pPos.y + (int)round(drawR));
 				}
 				continue;
 			}

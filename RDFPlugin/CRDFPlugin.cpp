@@ -8,10 +8,13 @@ const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuro
 static constexpr auto GEOM_RAD_FROM_DEG(const double& deg) -> double { return deg * pi / 180.0; };
 static constexpr auto GEOM_DEG_FROM_RAD(const double& rad) -> double { return rad / pi * 180.0; };
 
-inline static auto FrequencyConvert(const double& freq) -> int { // frequency * 1000 => int
-	return round(freq * 1000.0);
+inline static auto FrequencyFromMHz(const double& freq) -> int {
+	return (int)round(freq * 1000.0);
 }
-inline static auto FrequencyCompare(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency *= 1000
+inline static auto FrequencyFromHz(const double& freq) -> int {
+	return (int)round(freq / 1000.0);
+}
+inline static auto FrequencyIsSame(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency in kHz
 	return abs(freq1 - freq2) <= 10;
 }
 
@@ -38,7 +41,7 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		DisplayWarnMessage("Unable to open communications for RDF");
+		DisplayWarnMessage("Unable to open communications for RDF.");
 	}
 
 	// AFV bridge window
@@ -57,38 +60,29 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		DisplayWarnMessage("Unable to open communications for AFV bridge");
+		DisplayWarnMessage("Unable to open communications for AFV bridge.");
 	}
 
+	// registration
+	RegisterTagItemType("RDF state", TAG_ITEM_TYPE_RDF_STATE);
+
 	// initialize default settings
-	screenSettings[-1] = std::make_shared<draw_settings>();
-	LoadVectorAudioSettings();
+	ix::initNetSystem();
+	socketTrackAudio.setHandshakeTimeout(TRACKAUDIO_TIMEOUT_SEC);
+	socketTrackAudio.setMaxWaitBetweenReconnectionRetries(TRACKAUDIO_HEARTBEAT_SEC * 2000); // ms
+	socketTrackAudio.setPingInterval(TRACKAUDIO_HEARTBEAT_SEC);
+	socketTrackAudio.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
+	setScreen[-1] = std::make_shared<draw_settings>();
+	LoadTrackAudioSettings();
 	LoadDrawingSettings();
 
-	// random
-	rdGenerator = std::mt19937(randomDevice());
-	disBearing = std::uniform_real_distribution<>(0.0, 360.0);
-	disDistance = std::normal_distribution<>(0, 1.0);
-
-	// thread for VectorAudio
-	threadVectorAudioMain = std::thread(&CRDFPlugin::VectorAudioMainLoop, this);
-	threadVectorAudioTXRX = std::thread(&CRDFPlugin::VectorAudioTXRXLoop, this);
-
-	DisplayInfoMessage(std::format("Version {} Loaded", MY_PLUGIN_VERSION));
+	DisplayInfoMessage(std::format("Version {} Loaded.", MY_PLUGIN_VERSION));
 }
 
 CRDFPlugin::~CRDFPlugin()
 {
-	// close detached thread
-	{
-		std::lock_guard<std::mutex> tMainLock(threadMainLock);
-		std::lock_guard<std::mutex> tTXRXLock(threadTXRXLock);
-		threadRunning = false;
-	}
-	cvThreadMain.notify_all();
-	cvThreadTXRX.notify_all();
-	threadVectorAudioMain.join();
-	threadVectorAudioTXRX.join();
+	// disconnect TrackAudio connection
+	socketTrackAudio.stop();
 
 	if (hiddenWindowRDF != nullptr) {
 		DestroyWindow(hiddenWindowRDF);
@@ -100,26 +94,36 @@ CRDFPlugin::~CRDFPlugin()
 	}
 	UnregisterClass("AfvBridgeHiddenWindowClass", nullptr);
 
+	ix::uninitNetSystem();
 }
 
 auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 {
-	std::unique_lock<std::mutex> lock(messageLock);
+	std::unique_lock tlock(mtxTransmission);
 	if (message.size()) {
 		DisplayDebugMessage(std::string("AFV message: ") + message);
-		std::set<std::string> strings;
+		std::vector<std::string> callsigns;
 		std::istringstream f(message);
 		std::string s;
 		while (std::getline(f, s, ':')) {
-			strings.insert(s);
+			callsigns.push_back(s);
 		}
-		messages.push(strings);
+		// skip existing callsigns and clear redundant
+		std::erase_if(curTransmission, [&callsigns](const auto& item) {
+			return !std::erase(callsigns, item.first);
+			});
+		// add new stations
+		for (const auto& cs : callsigns) {
+			auto dp = GenerateDrawPosition(cs);
+			if (dp.radius > 0) {
+				curTransmission[cs] = dp;
+			}
+		}
+		preTransmission = curTransmission;
 	}
 	else {
-		messages.push(std::set<std::string>());
+		curTransmission.clear();
 	}
-	lock.unlock();
-	ProcessRDFQueue();
 }
 
 auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
@@ -140,7 +144,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	int msgFrequency;
 	bool transmitX, receiveX;
 	try {
-		msgFrequency = FrequencyConvert(stod(strings.front()));
+		msgFrequency = FrequencyFromMHz(stod(strings.front()));
 		strings.pop();
 		receiveX = strings.front() == "True";
 		strings.pop();
@@ -152,46 +156,28 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 		return;
 	}
 
-	// abort if frequency is prim
-	if (FrequencyCompare(msgFrequency, FrequencyConvert(ControllerMyself().GetPrimaryFrequency())))
-		return;
-
 	// match frequency to callsign
 	std::string msgCallsign = ControllerMyself().GetCallsign();
-	for (auto c = ControllerSelectFirst(); c.IsValid(); c = ControllerSelectNext(c)) {
-		if (FrequencyCompare(FrequencyConvert(c.GetPrimaryFrequency()), msgFrequency)) {
-			msgCallsign = c.GetCallsign();
-			break;
-		}
-	}
-
-	// find channel and toggle
-	for (auto c = GroundToArChannelSelectFirst(); c.IsValid(); c = GroundToArChannelSelectNext(c)) {
-		int chFreq = FrequencyConvert(c.GetFrequency());
-		if (c.GetIsPrimary() || c.GetIsAtis() || !FrequencyCompare(chFreq, msgFrequency))
-			continue;
-		std::string chName = c.GetName();
-		if (msgCallsign == chName) {
-			ToggleChannels(c, transmitX, receiveX);
-			return;
-		}
-		else {
-			size_t posc = msgCallsign.find('_');
-			if (chName.starts_with(msgCallsign.substr(0, posc))) {
-				ToggleChannels(c, transmitX, receiveX);
-				return;
+	if (!FrequencyIsSame(msgFrequency, FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency()))) { // not myself
+		for (auto c = ControllerSelectFirst(); c.IsValid(); c = ControllerSelectNext(c)) {
+			if (FrequencyIsSame(FrequencyFromMHz(c.GetPrimaryFrequency()), msgFrequency)) {
+				msgCallsign = c.GetCallsign();
+				break;
 			}
 		}
 	}
 
-	// no possible match, toggle the first same frequency
-	for (auto c = GroundToArChannelSelectFirst(); c.IsValid(); c = GroundToArChannelSelectNext(c)) {
-		if (!c.GetIsPrimary() && !c.GetIsAtis() &&
-			FrequencyCompare(FrequencyConvert(c.GetFrequency()), msgFrequency)) {
-			ToggleChannels(c, transmitX, receiveX);
-			return;
-		}
+	// deal with increment/decrement of stations
+	std::unique_lock flock(mtxFrequency);
+	if (receiveX) {
+		curFrequencies[msgCallsign].frequency = msgFrequency;
+		curFrequencies[msgCallsign].tx = transmitX;
 	}
+	else {
+		curFrequencies.erase(msgCallsign);
+	}
+	flock.unlock();
+	UpdateChannels();
 }
 
 auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> void
@@ -209,57 +195,29 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 	}
 }
 
-auto CRDFPlugin::LoadVectorAudioSettings(void) -> void
+auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 {
-	addressVectorAudio = "127.0.0.1:49080";
-	connectionTimeout = 300; // milliseconds, range: [100, 1000]
-	pollInterval = 200; // milliseconds, range: [100, +inf)
-	retryInterval = 5; // seconds, range: [1, +inf)
+	addressTrackAudio = "127.0.0.1:49080";
+	const char* cstrAddrVA = GetDataFromSettings(SETTING_ENDPOINT);
+	if (cstrAddrVA != nullptr) {
+		addressTrackAudio = cstrAddrVA;
+		DisplayDebugMessage(std::string("Address: ") + addressTrackAudio);
+	}
 
-	try
-	{
-		const char* cstrAddrVA = GetDataFromSettings(SETTING_VECTORAUDIO_ADDRESS);
-		if (cstrAddrVA != nullptr)
-		{
-			addressVectorAudio = cstrAddrVA;
-			DisplayDebugMessage(std::string("Address: ") + addressVectorAudio);
-		}
-		const char* cstrTimeout = GetDataFromSettings(SETTING_VECTORAUDIO_TIMEOUT);
-		if (cstrTimeout != nullptr)
-		{
-			int parsedTimeout = atoi(cstrTimeout);
-			if (parsedTimeout >= 100 && parsedTimeout <= 1000) {
-				connectionTimeout = parsedTimeout;
-				DisplayDebugMessage(std::string("Timeout: ") + std::to_string(connectionTimeout));
-			}
-		}
-		const char* cstrPollInterval = GetDataFromSettings(SETTING_VECTORAUDIO_POLL_INTERVAL);
-		if (cstrPollInterval != nullptr)
-		{
-			int parsedInterval = atoi(cstrPollInterval);
-			if (parsedInterval >= 100) {
-				pollInterval = parsedInterval;
-				DisplayDebugMessage(std::string("Poll interval: ") + std::to_string(pollInterval));
-			}
-		}
-		const char* cstrRetryInterval = GetDataFromSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL);
-		if (cstrRetryInterval != nullptr)
-		{
-			int parsedInterval = atoi(cstrRetryInterval);
-			if (parsedInterval >= 1) {
-				retryInterval = parsedInterval;
-				DisplayDebugMessage(std::string("Retry interval: ") + std::to_string(retryInterval));
-			}
-		}
-	}
-	catch (std::runtime_error const& e)
-	{
-		DisplayWarnMessage(std::string("Error: ") + e.what());
-	}
-	catch (...)
-	{
-		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
-	}
+	// initialize TrackAudio WebSocket
+	socketTrackAudio.stop();
+
+	// clears records
+	std::unique_lock lock1(mtxTransmission), lock2(mtxFrequency);
+	curTransmission.clear();
+	preTransmission.clear();
+	curFrequencies.clear();
+	lock1.unlock();
+	lock2.unlock();
+	UpdateChannels();
+
+	socketTrackAudio.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
+	socketTrackAudio.start();
 }
 
 auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
@@ -273,7 +231,7 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 	DisplayDebugMessage(std::format("Loading drawing settings ID {}", screenID));
 	auto GetSetting = [&](const auto& varName) -> std::string {
 		if (screenID != -1) {
-			auto ds = screenVec[screenID]->GetDataFromAsr(varName);
+			auto ds = vecScreen[screenID]->GetDataFromAsr(varName);
 			if (ds != nullptr) {
 				return ds;
 			}
@@ -284,17 +242,17 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 
 	try
 	{
-		std::unique_lock<std::shared_mutex> lock(screenLock);
+		std::unique_lock<std::shared_mutex> lock(mtxScreen);
 		// initialize settings
 		std::shared_ptr<draw_settings> targetSetting;;
-		auto itrSetting = screenSettings.find(screenID);
-		if (itrSetting != screenSettings.end()) { // use existing
+		auto itrSetting = setScreen.find(screenID);
+		if (itrSetting != setScreen.end()) { // use existing
 			targetSetting = itrSetting->second;
 		}
 		else { // create new based on plugin setting
 			DisplayDebugMessage("Inserting new settings");
-			targetSetting = std::make_shared<draw_settings>(*screenSettings[-1]);
-			screenSettings.insert({ screenID, targetSetting });
+			targetSetting = std::make_shared<draw_settings>(*setScreen[-1]);
+			setScreen.insert({ screenID, targetSetting });
 		}
 
 		auto cstrRGB = GetSetting(SETTING_RGB);
@@ -387,7 +345,7 @@ auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& scr
 	// deals with settings available for asr
 	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
 		if (screenID != -1) {
-			screenVec[screenID]->AddAsrDataToBeSaved(varName, varDescr, val);
+			vecScreen[screenID]->AddAsrDataToBeSaved(varName, varDescr, val);
 			DisplayInfoMessage(std::format("{}: {} (ASR)", varDescr, val));
 		}
 		else {
@@ -397,8 +355,8 @@ auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& scr
 		};
 	try
 	{
-		std::unique_lock<std::shared_mutex> lock(screenLock);
-		std::shared_ptr<draw_settings> targetSetting = screenSettings[screenID];
+		std::unique_lock lock(mtxScreen);
+		std::shared_ptr<draw_settings> targetSetting = setScreen[screenID];
 		std::smatch match;
 		std::regex rxRGB(R"(^.RDF (RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
 		if (regex_match(command, match, rxRGB)) {
@@ -486,154 +444,157 @@ auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& scr
 	return false;
 }
 
-auto CRDFPlugin::ProcessRDFQueue(void) -> void
+auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 {
-	std::lock_guard<std::mutex> lock(messageLock);
-	// Process all incoming messages
-	while (messages.size() > 0) {
-		std::set<std::string> amessage = messages.front();
-		messages.pop();
+	// return radius=0 for no draw
 
-		// remove existing records
-		for (auto itr = activeStations.begin(); itr != activeStations.end();) {
-			if (amessage.erase(itr->first)) { // remove still transmitting from message
-				itr++;
-			}
-			else {
-				// no removal, means stopped transmission, need to also remove from map
-				activeStations.erase(itr++);
-			}
-		}
+	// randoms
+	static std::random_device randomDevice;
+	static std::mt19937 rdGenerator(randomDevice());
+	static std::uniform_real_distribution<> disBearing(0.0, 360.0);
+	static std::normal_distribution<> disDistance(0, 1.0);
 
-		// add new active transmitting records
-		for (const auto& callsign : amessage) {
-			auto radarTarget = RadarTargetSelect(callsign.c_str());
-			auto controller = ControllerSelect(callsign.c_str());
-			if (!radarTarget.IsValid() && controller.IsValid() && callsign.back() >= 'A' && callsign.back() <= 'Z') {
-				// dump last character and find callsign again
-				std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
-				radarTarget = RadarTargetSelect(callsign_dump.c_str());
-			}
-			auto params = GetDrawingParam();
-			int circleRadius = params.circleRadius;
-			int circlePrecision = params.circlePrecision;
-			int circleThreshold = params.circleThreshold;
-			int lowAltitude = params.lowAltitude;
-			int highAltitude = params.highAltitude;
-			int lowPrecision = params.lowPrecision;
-			int highPrecision = params.highPrecision;
-			bool drawController = params.drawController;
-			if (radarTarget.IsValid()) {
-				int alt = radarTarget.GetPosition().GetPressureAltitude();
-				if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
-					EuroScopePlugIn::CPosition pos = radarTarget.GetPosition().GetPosition();
-					double radius = circleRadius;
-					// determines offset
-					double offset = circlePrecision;
-					if (circleThreshold >= 0 && lowPrecision > 0) {
-						if (highPrecision > 0 && highAltitude > lowAltitude) {
-							offset = (double)lowPrecision + (double)(alt - lowAltitude) * (double)(highPrecision - lowPrecision) / (double)(highAltitude - lowAltitude);
-						}
-						else {
-							offset = lowPrecision > 0 ? lowPrecision : circlePrecision;
-						}
-						radius = offset;
-					}
-					if (offset > 0) { // add random offset
-						double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
-						double bearing = disBearing(rdGenerator);
-						AddOffset(pos, bearing, distance);
-					}
-					activeStations[callsign] = { pos, radius };
+	auto radarTarget = RadarTargetSelect(callsign.c_str());
+	auto controller = ControllerSelect(callsign.c_str());
+	if (!radarTarget.IsValid() && controller.IsValid() && callsign.back() >= 'A' && callsign.back() <= 'Z') {
+		// dump last character and find callsign again
+		std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
+		radarTarget = RadarTargetSelect(callsign_dump.c_str());
+	}
+	auto params = GetDrawingParam();
+	int circleRadius = params.circleRadius;
+	int circlePrecision = params.circlePrecision;
+	int circleThreshold = params.circleThreshold;
+	int lowAltitude = params.lowAltitude;
+	int highAltitude = params.highAltitude;
+	int lowPrecision = params.lowPrecision;
+	int highPrecision = params.highPrecision;
+	bool drawController = params.drawController;
+	if (radarTarget.IsValid()) {
+		int alt = radarTarget.GetPosition().GetPressureAltitude();
+		if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
+			EuroScopePlugIn::CPosition pos = radarTarget.GetPosition().GetPosition();
+			double radius = circleRadius;
+			// determines offset
+			double offset = circlePrecision;
+			if (circleThreshold >= 0 && (lowPrecision > 0 || circlePrecision > 0)) {
+				if (highPrecision > 0 && highAltitude > lowAltitude) {
+					offset = (double)lowPrecision + (double)(alt - lowAltitude) * (double)(highPrecision - lowPrecision) / (double)(highAltitude - lowAltitude);
 				}
+				else {
+					offset = lowPrecision > 0 ? lowPrecision : circlePrecision;
+				}
+				radius = offset;
 			}
-			else if (drawController && controller.IsValid()) {
-				auto pos = controller.GetPosition();
-				activeStations[callsign] = { pos, (double)lowPrecision };
+			if (offset > 0) { // add random offset
+				double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
+				double bearing = disBearing(rdGenerator);
+				AddOffset(pos, bearing, distance);
 			}
+			return draw_position(pos, radius);
 		}
+	}
+	else if (drawController && controller.IsValid()) {
+		auto pos = controller.GetPosition();
+		return draw_position(pos, circleRadius);
+	}
+	return draw_position();
+}
 
-		if (!activeStations.empty()) {
-			previousStations = activeStations;
+auto CRDFPlugin::TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void
+{
+	std::unique_lock tlock(mtxTransmission);
+	std::string callsign = data["callsign"];
+	auto it = curTransmission.find(callsign);
+	if (it != curTransmission.end()) {
+		if (rxEnd) {
+			curTransmission.erase(it);
 		}
+	}
+	else if (!rxEnd) {
+		auto dp = GenerateDrawPosition(callsign);
+		if (dp.radius > 0) {
+			curTransmission[callsign] = dp;
+		}
+	}
+	if (curTransmission.size()) {
+		preTransmission = curTransmission;
 	}
 }
 
-auto CRDFPlugin::UpdateVectorAudioChannels(const std::string& line, const bool& mode_tx) -> void
+auto CRDFPlugin::TrackAudioChannelHandler(const nlohmann::json& data) -> void
 {
 	// parse message and returns number of total toggles
-	std::map<std::string, int> channelFreq;
-	std::istringstream ssLine(line);
-	std::string strChnl;
-	int freqMe = FrequencyConvert(ControllerMyself().GetPrimaryFrequency());
-	while (getline(ssLine, strChnl, ',')) {
-		size_t colon = strChnl.find(':');
-		std::string channel = strChnl.substr(0, colon);
-		try {
-			int frequency = FrequencyConvert(stod(strChnl.substr(colon + 1)));
-			if (!FrequencyCompare(freqMe, frequency)) {
-				channelFreq.insert({ channel, frequency });
-			}
-		}
-		catch (...) {
-			DisplayDebugMessage("Error when parsing frequencies: " + strChnl);
-			continue;
-		}
+	// json format as described in TrackAudio SDK ["value"]
+	// internal process in kHz
+	std::unique_lock flock(mtxFrequency);
+	curFrequencies.clear();
+	for (auto& elem : data["rx"]) {
+		std::string callsign = elem["pCallsign"];
+		int freq = FrequencyFromHz(elem["pFrequencyHz"]);
+		curFrequencies[callsign].frequency = freq;
 	}
+	for (auto& elem : data["tx"]) {
+		std::string callsign = elem["pCallsign"];
+		int freq = FrequencyFromHz(elem["pFrequencyHz"]);
+		curFrequencies[callsign].frequency = freq;
+		curFrequencies[callsign].tx = true;
+	}
+	flock.unlock();
+	UpdateChannels();
+}
 
+auto CRDFPlugin::UpdateChannels(void) -> void
+{
+	std::shared_lock recLock(mtxFrequency);
+	std::string myName = ControllerMyself().GetCallsign();
+	int myFreq = FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency());
+	std::set<int> usingFrequencies = { myFreq };
 	for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
-		if (chnl.GetIsPrimary() || chnl.GetIsAtis()) { // make sure primary and ATIS are not affected
+		int chFreq = FrequencyFromMHz(chnl.GetFrequency());
+		std::string chName = chnl.GetName();
+		if (usingFrequencies.contains(chFreq)) { // skip frequencies already in use
 			continue;
 		}
-		std::string chName = chnl.GetName();
-		int chFreq = FrequencyConvert(chnl.GetFrequency());
-		auto it = channelFreq.find(chName);
-		if (it != channelFreq.end() && FrequencyCompare(it->second, chFreq)) { // allows 0.010 of deviation
-			channelFreq.erase(it);
-			goto _toggle_on;
+		else if (chName == myName || chnl.GetIsPrimary() || chnl.GetIsAtis()) { // make sure primary and ATIS are not affected
+			usingFrequencies.insert(chFreq);
+			continue;
 		}
-		else if (it == channelFreq.end()) {
-			auto itc = channelFreq.begin();
-			for (; itc != channelFreq.end() && !FrequencyCompare(itc->second, chFreq); itc++); // locate a matching freq
-			if (itc != channelFreq.end()) {
-				size_t posi = itc->first.find('_');
-				if (chName.starts_with(itc->first.substr(0, posi))) {
-					channelFreq.erase(itc);
-					goto _toggle_on;
+		auto it1 = curFrequencies.find(chName);
+		if (it1 != curFrequencies.end() && FrequencyIsSame(it1->second.frequency, chFreq)) {
+			ToggleChannels(chnl, it1->second.tx, 1);
+			usingFrequencies.insert(chFreq);
+			continue;
+		}
+		else if (it1 == curFrequencies.end()) {
+			auto it2 = std::find_if(curFrequencies.begin(), curFrequencies.end(),
+				[chFreq](const auto& i) {return FrequencyIsSame(i.second.frequency, chFreq); }); // locate a matching freq
+			if (it2 != curFrequencies.end()) {
+				size_t posi = it2->first.find('_');
+				if (chName.starts_with(it2->first.substr(0, posi))) {
+					ToggleChannels(chnl, it2->second.tx, 1);
+					usingFrequencies.insert(chFreq);
+					continue;
 				}
 			}
 		}
-		// toggle off
-		if (mode_tx) {
-			ToggleChannels(chnl, 0, -1);
-		}
-		else {
-			ToggleChannels(chnl, -1, 0);
-		}
-		continue;
-	_toggle_on:
-		if (mode_tx) {
-			ToggleChannels(chnl, 1, -1);
-		}
-		else {
-			ToggleChannels(chnl, -1, 1);
-		}
+		ToggleChannels(chnl, 0, 0); // toggle off
 	}
 }
 
 auto CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx, const int& rx) -> void
 {
 	// pass tx/rx = -1 to skip
-	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
-		Channel.ToggleTextTransmit();
-		DisplayDebugMessage(
-			std::string("TX toggle: ") + Channel.GetName() + " frequency: " + std::to_string(Channel.GetFrequency())
-		);
-	}
 	if (rx >= 0 && rx != (int)Channel.GetIsTextReceiveOn()) {
 		Channel.ToggleTextReceive();
 		DisplayDebugMessage(
 			std::string("RX toggle: ") + Channel.GetName() + " frequency: " + std::to_string(Channel.GetFrequency())
+		);
+	}
+	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
+		Channel.ToggleTextTransmit();
+		DisplayDebugMessage(
+			std::string("TX toggle: ") + Channel.GetName() + " frequency: " + std::to_string(Channel.GetFrequency())
 		);
 	}
 }
@@ -642,117 +603,61 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 {
 	draw_settings res;
 	try {
-		std::shared_lock<std::shared_mutex> lock(screenLock);
-		res = *screenSettings.at(activeScreenID);
+		std::shared_lock<std::shared_mutex> lock(mtxScreen);
+		res = *setScreen.at(vidScreen);
 	}
 	catch (...) {
-		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}", (int)activeScreenID));
+		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}", (int)vidScreen));
 	}
 	return res;
 }
 
-auto CRDFPlugin::VectorAudioMainLoop(void) -> void
+auto CRDFPlugin::GetDrawStations(void) -> callsign_position
 {
-	bool getTransmit = false;
-	while (threadRunning) {
-		bool resValid = false;
-		httplib::Client cli("http://" + addressVectorAudio);
-		cli.set_connection_timeout(0, (time_t)connectionTimeout * 1000);
-		if (auto res = cli.Get(getTransmit ? VECTORAUDIO_PARAM_TRANSMIT : VECTORAUDIO_PARAM_VERSION)) {
-			if (res->status == 200) {
-				resValid = true;
-				DisplayDebugMessage(std::string("VectorAudio message: ") + res->body);
-				if (!getTransmit) {
-					DisplayInfoMessage("Connected to " + res->body);
-					getTransmit = true;
-				}
-				else {
-					std::unique_lock<std::mutex> lock(messageLock);
-					if (!res->body.size()) {
-						messages.push(std::set<std::string>());
-					}
-					else {
-						std::set<std::string> strings;
-						std::istringstream f(res->body);
-						std::string s;
-						while (getline(f, s, ',')) {
-							strings.insert(s);
-						}
-						messages.push(strings);
-					}
-					lock.unlock();
-					ProcessRDFQueue();
-				}
-			}
-			else {
-				DisplayDebugMessage("HTTP error on MAIN: " + httplib::to_string(res.error()));
-			}
-		}
-		else {
-			DisplayDebugMessage("Not connected");
-		}
-		if (!resValid && getTransmit) {
-			DisplayWarnMessage("VectorAudio disconnected");
-			getTransmit = false;
-		}
-
-		std::unique_lock<std::mutex> tLock(threadMainLock);
-		int sleepThis = getTransmit ? pollInterval : retryInterval * 1000;
-		if (cvThreadMain.wait_for(tLock, std::chrono::milliseconds(sleepThis),
-			[&] {return !threadRunning.load(); })) {
-			return;
-		}
-	}
+	std::shared_lock tlock(mtxTransmission);
+	return curTransmission.empty() && GetAsyncKeyState(VK_MBUTTON) ? preTransmission : curTransmission;
 }
 
-auto CRDFPlugin::VectorAudioTXRXLoop(void) -> void
+auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void
 {
-	bool suppressEmpty = false; // true means no warnings because VectorAudio is not connected
-	while (threadRunning) {
-		httplib::Client cli("http://" + addressVectorAudio);
-		cli.set_connection_timeout(0, (time_t)connectionTimeout * 1000);
-		bool isActive = false; // false when no active station, for warning
-		if (auto res = cli.Get(VECTORAUDIO_PARAM_TX)) {
-			if (res->status == 200) {
-				DisplayDebugMessage(std::string("VectorAudio message on TX: ") + res->body);
-				isActive = isActive || res->body.size();
-				UpdateVectorAudioChannels(res->body, true);
+	try {
+		DisplayDebugMessage(std::format("WS msg type {}: {}", (int)msg->type, msg->str));
+		if (msg->type == ix::WebSocketMessageType::Message) {
+			auto data = nlohmann::json::parse(msg->str);
+			std::string msgType = data["type"];
+			nlohmann::json msgValue = data["value"];
+			if (msgType == "kRxBegin") {
+				TrackAudioTransmissionHandler(msgValue, false);
 			}
-			else {
-				DisplayDebugMessage("HTTP error on TX: " + httplib::to_string(res.error()));
-				suppressEmpty = true;
+			else if (msgType == "kRxEnd") {
+				TrackAudioTransmissionHandler(msgValue, true);
 			}
-		}
-		else {
-			suppressEmpty = true;
-		}
-		if (auto res = cli.Get(VECTORAUDIO_PARAM_RX)) {
-			if (res->status == 200) {
-				DisplayDebugMessage(std::string("VectorAudio message on RX: ") + res->body);
-				isActive = isActive || res->body.size();
-				UpdateVectorAudioChannels(res->body, false);
-			}
-			else {
-				DisplayDebugMessage("HTTP error on RX: " + httplib::to_string(res.error()));
-				suppressEmpty = true;
+			else if (msgType == "kFrequencyStateUpdate") {
+				TrackAudioChannelHandler(msgValue);
 			}
 		}
-		else {
-			suppressEmpty = true;
+		else if (msg->type == ix::WebSocketMessageType::Open) {
+			// check for TrackAudio presense
+			httplib::Client cli(std::format("http://{}", addressTrackAudio));
+			cli.set_connection_timeout(TRACKAUDIO_TIMEOUT_SEC);
+			if (auto res = cli.Get(TRACKAUDIO_PARAM_VERSION)) {
+				if (res->status == 200 && res->body.size()) {
+					DisplayInfoMessage(std::format("Connected to {} on {}.", res->body, addressTrackAudio));
+				}
+			}
 		}
-		if (!isActive && !suppressEmpty) {
-			DisplayWarnMessage("No active stations in VecterAudio! Please check configuration.");
-			suppressEmpty = true;
+		else if (msg->type == ix::WebSocketMessageType::Error) {
+			DisplayDebugMessage(std::format("WS msg ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
+				msg->errorInfo.reason, (int)msg->errorInfo.retries, msg->errorInfo.wait_time, msg->errorInfo.http_status));
 		}
-		else if (isActive) {
-			suppressEmpty = false;
+		else if (msg->type == ix::WebSocketMessageType::Close) {
+			DisplayDebugMessage(std::format("WS msg CLOSE! code: {}, reason: {}",
+				(int)msg->closeInfo.code, msg->closeInfo.reason));
+			DisplayWarnMessage("TrackAudio WebSocket disconnected!");
 		}
-
-		std::unique_lock<std::mutex> tLock(threadTXRXLock);
-		if (cvThreadTXRX.wait_for(tLock, std::chrono::seconds(retryInterval),
-			[&] {return !threadRunning.load(); })) {
-			return;
-		}
+	}
+	catch (std::exception& exc) {
+		DisplayDebugMessage(exc.what());
 	}
 }
 
@@ -763,10 +668,10 @@ auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	bool CanBeCreated)
 	-> EuroScopePlugIn::CRadarScreen*
 {
-	size_t i = screenVec.size(); // should not be -1
-	DisplayInfoMessage(std::format("Radio Direction Finder plugin activated on {}", sDisplayName));
+	size_t i = vecScreen.size(); // should not be -1
+	DisplayInfoMessage(std::format("Radio Direction Finder plugin activated on {}.", sDisplayName));
 	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(i);
-	screenVec.push_back(screen);
+	vecScreen.push_back(screen);
 	DisplayDebugMessage(std::format("Screen created: ID {}, type {}", i, sDisplayName));
 	return screen.get();
 }
@@ -779,54 +684,18 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 	{
 		std::regex rxReload(R"(^.RDF RELOAD$)", std::regex_constants::icase);
 		if (regex_match(cmd, match, rxReload)) {
-			LoadVectorAudioSettings();
+			LoadTrackAudioSettings();
 			{
-				std::unique_lock<std::shared_mutex> lock(screenLock); // cautious for overlapped lock
-				screenSettings.clear();
-				screenSettings[-1] = std::make_shared<draw_settings>(); // initialize default settings
+				std::unique_lock lock(mtxScreen); // cautious for overlapped lock
+				setScreen.clear();
+				setScreen[-1] = std::make_shared<draw_settings>(); // initialize default settings
 			}
 			LoadDrawingSettings(-1); // restore plugin settings
-			for (auto& s : screenVec) { // reload asr settings
+			for (auto& s : vecScreen) { // reload asr settings
 				s->newAsrData.clear();
 				LoadDrawingSettings(s->m_ID);
 			}
 			return true;
-		}
-		std::regex rxAddress(R"(^.RDF ADDRESS (\S+)$)", std::regex_constants::icase);
-		if (regex_match(cmd, match, rxAddress)) {
-			addressVectorAudio = match[1].str();
-			DisplayInfoMessage(std::string("Address: ") + addressVectorAudio);
-			SaveDataToSettings(SETTING_VECTORAUDIO_ADDRESS, "VectorAudio address", addressVectorAudio.c_str());
-			return true;
-		}
-		// no need for regex any more
-		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
-		int bufferTimeout;
-		if (sscanf_s(cmd.c_str(), ".RDF TIMEOUT %d", &bufferTimeout) == 1) {
-			if (bufferTimeout >= 100 && bufferTimeout <= 1000) {
-				connectionTimeout = bufferTimeout;
-				DisplayInfoMessage(std::string("Timeout: ") + std::to_string(connectionTimeout));
-				SaveDataToSettings(SETTING_VECTORAUDIO_TIMEOUT, "VectorAudio timeout", std::to_string(connectionTimeout).c_str());
-				return true;
-			}
-		}
-		int bufferPollInterval;
-		if (sscanf_s(cmd.c_str(), ".RDF POLL %d", &bufferPollInterval) == 1) {
-			if (bufferPollInterval >= 100) {
-				pollInterval = bufferPollInterval;
-				DisplayInfoMessage(std::string("Poll interval: ") + std::to_string(bufferPollInterval));
-				SaveDataToSettings(SETTING_VECTORAUDIO_POLL_INTERVAL, "VectorAudio poll interval", std::to_string(pollInterval).c_str());
-				return true;
-			}
-		}
-		int bufferRetryInterval;
-		if (sscanf_s(cmd.c_str(), ".RDF RETRY %d", &bufferRetryInterval) == 1) {
-			if (bufferRetryInterval >= 1) {
-				retryInterval = bufferRetryInterval;
-				DisplayInfoMessage(std::string("Retry interval: ") + std::to_string(retryInterval));
-				SaveDataToSettings(SETTING_VECTORAUDIO_RETRY_INTERVAL, "VectorAudio retry interval", std::to_string(retryInterval).c_str());
-				return true;
-			}
 		}
 		return ParseDrawingSettings(sCommandLine);
 	}
@@ -835,6 +704,16 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 		DisplayWarnMessage(e.what());
 	}
 	return false;
+}
+
+auto CRDFPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan FlightPlan, EuroScopePlugIn::CRadarTarget RadarTarget, int ItemCode, int TagData, char sItemString[16], int* pColorCode, COLORREF* pRGB, double* pFontSize) -> void
+{
+	if (!FlightPlan.IsValid() || ItemCode != TAG_ITEM_TYPE_RDF_STATE) return;
+	std::string callsign = FlightPlan.GetCallsign();
+	std::shared_lock tlock(mtxTransmission);
+	if (preTransmission.contains(callsign)) {
+		strcpy_s(sItemString, 2, "!");
+	}
 }
 
 auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void
