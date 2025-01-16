@@ -6,7 +6,7 @@
 
 // Plugin info
 constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-constexpr auto MY_PLUGIN_VERSION = "1.4.0";
+constexpr auto MY_PLUGIN_VERSION = "1.4.1";
 constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan";
 constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3 License, Copyright (c) 2023 Kingfu Chan";
 // TrackAudio URLs and parameters
@@ -16,6 +16,7 @@ constexpr auto TRACKAUDIO_TIMEOUT_SEC = 1;
 constexpr auto TRACKAUDIO_HEARTBEAT_SEC = 30;
 // Global settings
 constexpr auto SETTING_ENDPOINT = "Endpoint";
+constexpr auto SETTING_HELPER_MODE = "TrackAudioMode"; // Default: 1 (station sync TA -> RDF)
 // Shared settings (ASR specific)
 constexpr auto SETTING_RGB = "RGB";
 constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
@@ -36,11 +37,13 @@ typedef struct _draw_position {
 	_draw_position(void) :
 		position(),
 		radius(0) // invalid value
-	{};
+	{
+	};
 	_draw_position(EuroScopePlugIn::CPosition _position, double _radius) :
 		position(_position),
 		radius(_radius)
-	{};
+	{
+	};
 } draw_position;
 typedef std::map<std::string, draw_position> callsign_position;
 auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void;
@@ -97,6 +100,7 @@ private:
 	callsign_frequency curFrequencies;
 
 	// TrackAudio WebSocket
+	int modeTrackAudio; // -1: no RDF, 0: no station sync, 1: station sync TA -> RDF, 2: station sync TA <-> RDF
 	std::string addressTrackAudio;
 	ix::WebSocket socketTrackAudio;
 	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
@@ -133,7 +137,7 @@ private:
 	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
 	auto LoadTrackAudioSettings(void) -> void;
 	auto LoadDrawingSettings(const int& screenID = -1) -> void;
-	auto ParseDrawingSettings(const std::string& command, const int& screenID = -1) -> bool;
+	auto ProcessDrawingCommand(const std::string& command, const int& screenID = -1) -> bool;
 
 	// functional things 
 	auto GenerateDrawPosition(std::string callsign) -> draw_position;

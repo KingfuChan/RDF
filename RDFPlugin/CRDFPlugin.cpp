@@ -198,9 +198,9 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 {
 	addressTrackAudio = "127.0.0.1:49080";
-	const char* cstrAddrVA = GetDataFromSettings(SETTING_ENDPOINT);
-	if (cstrAddrVA != nullptr) {
-		addressTrackAudio = cstrAddrVA;
+	const char* cstrEndpoint = GetDataFromSettings(SETTING_ENDPOINT);
+	if (cstrEndpoint != nullptr) {
+		addressTrackAudio = cstrEndpoint;
 		DisplayDebugMessage(std::string("Address: ") + addressTrackAudio);
 	}
 
@@ -216,8 +216,21 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	lock2.unlock();
 	UpdateChannels();
 
+	// get TrackAudio helper mode
+	modeTrackAudio = 1;
+	const char* cstrMode = GetDataFromSettings(SETTING_HELPER_MODE);
+	if (cstrMode != nullptr) {
+		int mode = std::stoi(cstrMode);
+		if (mode >= -1 && mode <= 2) {
+			modeTrackAudio = mode;
+		}
+	}
+	DisplayDebugMessage(std::format("TAMode: {}", modeTrackAudio));
+
 	socketTrackAudio.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
-	socketTrackAudio.start();
+	if (modeTrackAudio != -1) {
+		socketTrackAudio.start();
+	}
 }
 
 auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
@@ -339,7 +352,7 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 	}
 }
 
-auto CRDFPlugin::ParseDrawingSettings(const std::string& command, const int& screenID) -> bool
+auto CRDFPlugin::ProcessDrawingCommand(const std::string& command, const int& screenID) -> bool
 {
 	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
 	// deals with settings available for asr
@@ -697,7 +710,7 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 			}
 			return true;
 		}
-		return ParseDrawingSettings(sCommandLine);
+		return ProcessDrawingCommand(sCommandLine);
 	}
 	catch (const std::exception& e)
 	{

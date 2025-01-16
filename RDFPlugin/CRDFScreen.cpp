@@ -102,7 +102,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 
 auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 {
-	return GetRDFPlugin()->ParseDrawingSettings(sCommandLine, m_ID);
+	return GetRDFPlugin()->ProcessDrawingCommand(sCommandLine, m_ID);
 }
 
 auto CRDFScreen::GetRDFPlugin(void) -> CRDFPlugin*
