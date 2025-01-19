@@ -152,7 +152,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 		strings.pop();
 	}
 	catch (...) {
-		DisplayDebugMessage("Error when parsing AFV message: " + message);
+		DisplayDebugMessage("Error parsing AFV message: " + message);
 		return;
 	}
 
@@ -197,14 +197,35 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 
 auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 {
+	// get TrackAudio config
 	addressTrackAudio = "127.0.0.1:49080";
-	const char* cstrEndpoint = GetDataFromSettings(SETTING_ENDPOINT);
-	if (cstrEndpoint != nullptr) {
-		addressTrackAudio = cstrEndpoint;
-		DisplayDebugMessage(std::string("Address: ") + addressTrackAudio);
+	modeTrackAudio = 1;
+	try {
+		const char* cstrEndpoint = GetDataFromSettings(SETTING_ENDPOINT);
+		if (cstrEndpoint != nullptr) {
+			addressTrackAudio = cstrEndpoint;
+			DisplayDebugMessage(std::string("Address: ") + addressTrackAudio);
+		}
+		const char* cstrMode = GetDataFromSettings(SETTING_HELPER_MODE);
+		if (cstrMode != nullptr) {
+			int mode = std::stoi(cstrMode);
+			if (mode >= -1 && mode <= 2) {
+				modeTrackAudio = mode;
+			}
+			DisplayDebugMessage(std::format("TAMode: {}", modeTrackAudio));
+		}
+	}
+	catch (std::runtime_error const& e)
+	{
+		DisplayWarnMessage(std::string("Error: ") + e.what());
+	}
+	catch (...)
+	{
+		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
 	}
 
-	// initialize TrackAudio WebSocket
+
+	// reset TrackAudio WebSocket
 	socketTrackAudio.stop();
 
 	// clears records
@@ -214,22 +235,15 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	curFrequencies.clear();
 	lock1.unlock();
 	lock2.unlock();
-	UpdateChannels();
 
-	// get TrackAudio helper mode
-	modeTrackAudio = 1;
-	const char* cstrMode = GetDataFromSettings(SETTING_HELPER_MODE);
-	if (cstrMode != nullptr) {
-		int mode = std::stoi(cstrMode);
-		if (mode >= -1 && mode <= 2) {
-			modeTrackAudio = mode;
-		}
-	}
-	DisplayDebugMessage(std::format("TAMode: {}", modeTrackAudio));
-
+	// initialize TrackAudio WebSocket
 	socketTrackAudio.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
 	if (modeTrackAudio != -1) {
 		socketTrackAudio.start();
+		// send request to initialize station states
+		nlohmann::json jmsg;
+		jmsg["type"] = "kGetStationStates";
+		socketTrackAudio.send(jmsg.dump());
 	}
 }
 
@@ -454,6 +468,9 @@ auto CRDFPlugin::ProcessDrawingCommand(const std::string& command, const int& sc
 	{
 		DisplayWarnMessage(e.what());
 	}
+	catch (...) {
+		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
+	}
 	return false;
 }
 
@@ -517,7 +534,7 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 auto CRDFPlugin::TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void
 {
 	std::unique_lock tlock(mtxTransmission);
-	std::string callsign = data["callsign"];
+	std::string callsign = data.at("callsign");
 	auto it = curTransmission.find(callsign);
 	if (it != curTransmission.end()) {
 		if (rxEnd) {
@@ -535,26 +552,44 @@ auto CRDFPlugin::TrackAudioTransmissionHandler(const nlohmann::json& data, const
 	}
 }
 
-auto CRDFPlugin::TrackAudioChannelHandler(const nlohmann::json& data) -> void
+auto CRDFPlugin::TrackAudioStationStatesHandler(const nlohmann::json& data) -> void
 {
-	// parse message and returns number of total toggles
-	// json format as described in TrackAudio SDK ["value"]
-	// internal process in kHz
+	// handler for "kStationStates" <- "kGetStationStates" process
+	// deal with all station states and update ES channels
+	// data is json["value"]
+	// frequencies in kHz
 	std::unique_lock flock(mtxFrequency);
 	curFrequencies.clear();
-	for (auto& elem : data["rx"]) {
-		std::string callsign = elem["pCallsign"];
-		int freq = FrequencyFromHz(elem["pFrequencyHz"]);
-		curFrequencies[callsign].frequency = freq;
-	}
-	for (auto& elem : data["tx"]) {
-		std::string callsign = elem["pCallsign"];
-		int freq = FrequencyFromHz(elem["pFrequencyHz"]);
-		curFrequencies[callsign].frequency = freq;
-		curFrequencies[callsign].tx = true;
-	}
 	flock.unlock();
+	for (auto& stations : data.at("stations")) {
+		if (stations.at("type") == "kStationStateUpdate") {
+			TrackAudioStationStateUpdateHandler(stations.at("value"));
+		}
+	}
 	UpdateChannels();
+}
+
+auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data, const bool& update) -> void
+{
+	// handler for "kStationStateUpdate"
+	// used for update message and for "kStationStates" sections
+	// data is json["value"]
+	// frequencies in kHz
+	std::unique_lock flock(mtxFrequency);
+	if (data.value("rx", false)) { // default false when rx is not in dict
+		std::string callsign = data.at("callsign");
+		curFrequencies[callsign].frequency = FrequencyFromHz(data.at("frequency"));
+		curFrequencies[callsign].tx = data.value("tx", false);
+		// TODO: deal with muted stations
+	}
+	else {
+		curFrequencies.erase(data.at("callsign"));
+	}
+
+	flock.unlock();
+	if (update) {
+		UpdateChannels();
+	}
 }
 
 auto CRDFPlugin::UpdateChannels(void) -> void
@@ -619,6 +654,9 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 		std::shared_lock<std::shared_mutex> lock(mtxScreen);
 		res = *setScreen.at(vidScreen);
 	}
+	catch (std::exception& e) {
+		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}: ") + e.what());
+	}
 	catch (...) {
 		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}", (int)vidScreen));
 	}
@@ -645,8 +683,11 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			else if (msgType == "kRxEnd") {
 				TrackAudioTransmissionHandler(msgValue, true);
 			}
-			else if (msgType == "kFrequencyStateUpdate") {
-				TrackAudioChannelHandler(msgValue);
+			else if (msgType == "kStationStateUpdate") {
+				TrackAudioStationStateUpdateHandler(msgValue, true);
+			}
+			else if (msgType == "kStationStates") {
+				TrackAudioStationStatesHandler(msgValue);
 			}
 		}
 		else if (msg->type == ix::WebSocketMessageType::Open) {
@@ -670,7 +711,10 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 		}
 	}
 	catch (std::exception& exc) {
-		DisplayDebugMessage(exc.what());
+		DisplayDebugMessage(std::string("Exception handling TrackAudio ws msg: ") + exc.what());
+	}
+	catch (...) {
+		DisplayDebugMessage(std::string("Unexpected error handling TrackAudio ws msg: ") + std::to_string(GetLastError()));
 	}
 }
 
@@ -715,6 +759,9 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 	catch (const std::exception& e)
 	{
 		DisplayWarnMessage(e.what());
+	}
+	catch (...) {
+		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
 	}
 	return false;
 }

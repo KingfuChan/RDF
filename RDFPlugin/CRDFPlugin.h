@@ -142,7 +142,8 @@ private:
 	// functional things 
 	auto GenerateDrawPosition(std::string callsign) -> draw_position;
 	auto TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void;
-	auto TrackAudioChannelHandler(const nlohmann::json& data) -> void;
+	auto TrackAudioStationStatesHandler(const nlohmann::json& data) -> void;
+	auto TrackAudioStationStateUpdateHandler(const nlohmann::json& data, const bool& update = false) -> void;
 	auto UpdateChannels(void) -> void;
 	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
 
