@@ -533,6 +533,8 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 
 auto CRDFPlugin::TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void
 {
+	// handler for "kRxBegin" & "kRxEnd"
+	// pass rxEnd = true for "kRxEnd"
 	std::unique_lock tlock(mtxTransmission);
 	std::string callsign = data.at("callsign");
 	auto it = curTransmission.find(callsign);
@@ -672,22 +674,28 @@ auto CRDFPlugin::GetDrawStations(void) -> callsign_position
 auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void
 {
 	try {
-		DisplayDebugMessage(std::format("WS msg type {}: {}", (int)msg->type, msg->str));
 		if (msg->type == ix::WebSocketMessageType::Message) {
 			auto data = nlohmann::json::parse(msg->str);
 			std::string msgType = data["type"];
 			nlohmann::json msgValue = data["value"];
 			if (msgType == "kRxBegin") {
+				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
 				TrackAudioTransmissionHandler(msgValue, false);
 			}
 			else if (msgType == "kRxEnd") {
+				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
 				TrackAudioTransmissionHandler(msgValue, true);
 			}
 			else if (msgType == "kStationStateUpdate") {
+				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
 				TrackAudioStationStateUpdateHandler(msgValue, true);
 			}
 			else if (msgType == "kStationStates") {
+				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
 				TrackAudioStationStatesHandler(msgValue);
+			}
+			else {
+				DisplayDebugMessage(std::format("WS MSG {} not handled.", msgType));
 			}
 		}
 		else if (msg->type == ix::WebSocketMessageType::Open) {
@@ -701,11 +709,11 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			}
 		}
 		else if (msg->type == ix::WebSocketMessageType::Error) {
-			DisplayDebugMessage(std::format("WS msg ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
+			DisplayDebugMessage(std::format("WS ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
 				msg->errorInfo.reason, (int)msg->errorInfo.retries, msg->errorInfo.wait_time, msg->errorInfo.http_status));
 		}
 		else if (msg->type == ix::WebSocketMessageType::Close) {
-			DisplayDebugMessage(std::format("WS msg CLOSE! code: {}, reason: {}",
+			DisplayDebugMessage(std::format("WS CLOSE! code: {}, reason: {}",
 				(int)msg->closeInfo.code, msg->closeInfo.reason));
 			DisplayWarnMessage("TrackAudio WebSocket disconnected!");
 		}
