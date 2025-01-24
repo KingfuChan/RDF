@@ -3,21 +3,6 @@
 #include "stdafx.h"
 #include "CRDFPlugin.h"
 
-const double pi = 3.141592653589793;
-const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuroScopeCoord
-static constexpr auto GEOM_RAD_FROM_DEG(const double& deg) -> double { return deg * pi / 180.0; };
-static constexpr auto GEOM_DEG_FROM_RAD(const double& rad) -> double { return rad / pi * 180.0; };
-
-inline static auto FrequencyFromMHz(const double& freq) -> int {
-	return (int)round(freq * 1000.0);
-}
-inline static auto FrequencyFromHz(const double& freq) -> int {
-	return (int)round(freq / 1000.0);
-}
-inline static auto FrequencyIsSame(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency in kHz
-	return abs(freq1 - freq2) <= 10;
-}
-
 CRDFPlugin::CRDFPlugin()
 	: EuroScopePlugIn::CPlugIn(EuroScopePlugIn::COMPATIBILITY_CODE,
 		MY_PLUGIN_NAME,
@@ -112,7 +97,7 @@ auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 		std::erase_if(curTransmission, [&callsigns](const auto& item) {
 			return !std::erase(callsigns, item.first);
 			});
-		// add new stations
+		// add new station
 		for (const auto& cs : callsigns) {
 			auto dp = GenerateDrawPosition(cs);
 			if (dp.radius > 0) {
@@ -156,28 +141,12 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 		return;
 	}
 
-	// match frequency to callsign
-	std::string msgCallsign = ControllerMyself().GetCallsign();
-	if (!FrequencyIsSame(msgFrequency, FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency()))) { // not myself
-		for (auto c = ControllerSelectFirst(); c.IsValid(); c = ControllerSelectNext(c)) {
-			if (FrequencyIsSame(FrequencyFromMHz(c.GetPrimaryFrequency()), msgFrequency)) {
-				msgCallsign = c.GetCallsign();
-				break;
-			}
-		}
-	}
-
-	// deal with increment/decrement of stations
-	std::unique_lock flock(mtxFrequency);
-	if (receiveX) {
-		curFrequencies[msgCallsign].frequency = msgFrequency;
-		curFrequencies[msgCallsign].tx = transmitX;
-	}
-	else {
-		curFrequencies.erase(msgCallsign);
-	}
-	flock.unlock();
-	UpdateChannels();
+	// update channel
+	chnl_state state;
+	state.frequency = msgFrequency;
+	state.rx = receiveX;
+	state.tx = transmitX;
+	UpdateChannel(std::nullopt, state);
 }
 
 auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> void
@@ -229,12 +198,10 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	socketTrackAudio.stop();
 
 	// clears records
-	std::unique_lock lock1(mtxTransmission), lock2(mtxFrequency);
+	std::unique_lock tlock(mtxTransmission);
 	curTransmission.clear();
 	preTransmission.clear();
-	curFrequencies.clear();
-	lock1.unlock();
-	lock2.unlock();
+	tlock.unlock();
 
 	// initialize TrackAudio WebSocket
 	socketTrackAudio.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
@@ -278,7 +245,8 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 		}
 		else { // create new based on plugin setting
 			DisplayDebugMessage("Inserting new settings");
-			targetSetting = std::make_shared<draw_settings>(*setScreen[-1]);
+			draw_settings ds = *setScreen[-1];
+			targetSetting = std::make_shared<draw_settings>(ds);
 			setScreen.insert({ screenID, targetSetting });
 		}
 
@@ -560,88 +528,112 @@ auto CRDFPlugin::TrackAudioStationStatesHandler(const nlohmann::json& data) -> v
 	// deal with all station states and update ES channels
 	// data is json["value"]
 	// frequencies in kHz
-	std::unique_lock flock(mtxFrequency);
-	curFrequencies.clear();
-	flock.unlock();
-	for (auto& stations : data.at("stations")) {
-		if (stations.at("type") == "kStationStateUpdate") {
-			TrackAudioStationStateUpdateHandler(stations.at("value"));
+	for (auto& station : data.at("stations")) {
+		if (station.at("type") == "kStationStateUpdate") {
+			TrackAudioStationStateUpdateHandler(station.at("value"));
 		}
 	}
-	UpdateChannels();
 }
 
-auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data, const bool& update) -> void
+auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data) -> void
 {
 	// handler for "kStationStateUpdate"
 	// used for update message and for "kStationStates" sections
 	// data is json["value"]
 	// frequencies in kHz
-	std::unique_lock flock(mtxFrequency);
-	if (data.value("rx", false)) { // default false when rx is not in dict
-		std::string callsign = data.at("callsign");
-		curFrequencies[callsign].frequency = FrequencyFromHz(data.at("frequency"));
-		curFrequencies[callsign].tx = data.value("tx", false);
-		// TODO: deal with muted stations
-	}
-	else {
-		curFrequencies.erase(data.at("callsign"));
-	}
-
-	flock.unlock();
-	if (update) {
-		UpdateChannels();
-	}
+	std::string callsign = data.value("callsign", "");
+	chnl_state state;
+	state.frequency = FrequencyFromHz(data.value("frequency", FREQUENCY_REDUNDANT));
+	state.rx = data.value("rx", false);
+	state.tx = data.value("tx", false);
+	UpdateChannel(callsign.size() ? std::optional<std::string>(callsign) : std::nullopt, state);
 }
 
-auto CRDFPlugin::UpdateChannels(void) -> void
+auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& callsign, const std::optional<int>& frequency) -> EuroScopePlugIn::CGrountToAirChannel
 {
-	std::shared_lock recLock(mtxFrequency);
-	std::string myName = ControllerMyself().GetCallsign();
-	int myFreq = FrequencyFromMHz(ControllerMyself().GetPrimaryFrequency());
-	std::set<int> usingFrequencies = { myFreq };
-	for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
-		int chFreq = FrequencyFromMHz(chnl.GetFrequency());
-		std::string chName = chnl.GetName();
-		if (usingFrequencies.contains(chFreq)) { // skip frequencies already in use
-			continue;
+	if (callsign && frequency) { // find precise match
+		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
+			if (*callsign == chnl.GetName() && FrequencyIsSame(FrequencyFromMHz(chnl.GetFrequency()), *frequency)) {
+				return chnl;
+			}
 		}
-		else if (chName == myName || chnl.GetIsPrimary() || chnl.GetIsAtis()) { // make sure primary and ATIS are not affected
-			usingFrequencies.insert(chFreq);
-			continue;
+	}
+	else if (callsign) { // match callsign only
+		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
+			if (*callsign == chnl.GetName()) {
+				return chnl;
+			}
 		}
-		auto it1 = curFrequencies.find(chName);
-		if (it1 != curFrequencies.end() && FrequencyIsSame(it1->second.frequency, chFreq)) {
-			ToggleChannels(chnl, it1->second.tx, 1);
-			usingFrequencies.insert(chFreq);
-			continue;
+	}
+	else if (frequency) { // find matching frequency that is nearest prim
+		// make a copy of EuroScope data for comparison
+		std::map<std::string, chnl_state> allChannels; // channel name (sorted) -> chnl_state
+		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
+			allChannels[chnl.GetName()] = chnl_state(chnl);
 		}
-		else if (it1 == curFrequencies.end()) {
-			auto it2 = std::find_if(curFrequencies.begin(), curFrequencies.end(),
-				[chFreq](const auto& i) {return FrequencyIsSame(i.second.frequency, chFreq); }); // locate a matching freq
-			if (it2 != curFrequencies.end()) {
-				size_t posi = it2->first.find('_');
-				if (chName.starts_with(it2->first.substr(0, posi))) {
-					ToggleChannels(chnl, it2->second.tx, 1);
-					usingFrequencies.insert(chFreq);
-					continue;
+		// get primary frequency & callsign
+		const auto primChannel = std::find_if(allChannels.begin(), allChannels.end(), [&](const auto& chnl) {
+			return chnl.second.isPrim;
+			});
+		if (primChannel != allChannels.end()) {
+			// calculate distance of same frequency and add to new map
+			std::map<std::string, int> nameDistance; // channel name -> distance to prim
+			for (auto it = allChannels.begin(); it != allChannels.end(); it++) {
+				if (FrequencyIsSame(it->second.frequency, *frequency)) {
+					nameDistance[it->first] = abs(std::distance(it, primChannel));
+				}
+			}
+			auto minName = std::min_element(nameDistance.begin(), nameDistance.end(), [](const auto& nd1, const auto& nd2) {
+				return nd1.second < nd2.second;
+				});
+			if (minName != nameDistance.end()) {
+				return SelectGroundToAirChannel(minName->first, frequency);
+			}
+		}
+		else { // prim not set, use the first frequency match
+			for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
+				if (FrequencyIsSame(FrequencyFromMHz(chnl.GetFrequency()), *frequency)) {
+					return chnl;
 				}
 			}
 		}
-		ToggleChannels(chnl, 0, 0); // toggle off
+	}
+	return EuroScopePlugIn::CGrountToAirChannel();
+}
+
+auto CRDFPlugin::UpdateChannel(const std::optional<std::string>& callsign, const std::optional<chnl_state>& channelState) -> void
+{
+	// note: EuroScope channels allow duplication in channel name, but name <-> frequency pair is unique.
+	if (channelState) {
+		if (channelState->isPrim || channelState->isAtis) {
+			return;
+		}
+		else {
+			auto chnl = SelectGroundToAirChannel(callsign, channelState->frequency);
+			if (chnl.IsValid()) {
+				ToggleChannel(chnl, channelState->rx, channelState->tx);
+			}
+		}
+	}
+	else { // doesn't specify channel or frequency, deactivate all channels
+		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
+			ToggleChannel(chnl, false, false); // check for prim/atis will be done inside
+		}
 	}
 }
 
-auto CRDFPlugin::ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx, const int& rx) -> void
+auto CRDFPlugin::ToggleChannel(EuroScopePlugIn::CGrountToAirChannel Channel, const std::optional<bool>& rx, const std::optional<bool>& tx) -> void
 {
-	// pass tx/rx = -1 to skip
-	if (rx >= 0 && rx != (int)Channel.GetIsTextReceiveOn()) {
+	if (!Channel.IsValid() || Channel.GetIsAtis() || Channel.GetIsPrimary()) {
+		return;
+	}
+	if (rx && *rx != Channel.GetIsTextReceiveOn()) {
 		Channel.ToggleTextReceive();
 		DisplayDebugMessage(
 			std::string("RX toggle: ") + Channel.GetName() + " frequency: " + std::to_string(Channel.GetFrequency())
 		);
 	}
-	if (tx >= 0 && tx != (int)Channel.GetIsTextTransmitOn()) {
+	if (tx && *tx != Channel.GetIsTextTransmitOn()) {
 		Channel.ToggleTextTransmit();
 		DisplayDebugMessage(
 			std::string("TX toggle: ") + Channel.GetName() + " frequency: " + std::to_string(Channel.GetFrequency())
@@ -657,7 +649,7 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 		res = *setScreen.at(vidScreen);
 	}
 	catch (std::exception& e) {
-		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}: ") + e.what());
+		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}: ", (int)vidScreen) + e.what());
 	}
 	catch (...) {
 		DisplayDebugMessage(std::format("GetDrawingParam error, ID {}", (int)vidScreen));
@@ -688,7 +680,7 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			}
 			else if (msgType == "kStationStateUpdate") {
 				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
-				TrackAudioStationStateUpdateHandler(msgValue, true);
+				TrackAudioStationStateUpdateHandler(msgValue);
 			}
 			else if (msgType == "kStationStates") {
 				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));

@@ -29,6 +29,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <memory>
+#include <optional>
 // networking
 #include <httplib.h>
 #include <ixwebsocket/IXNetSystem.h>
