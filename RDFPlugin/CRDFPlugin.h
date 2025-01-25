@@ -187,17 +187,20 @@ private:
 	auto UpdateChannel(const std::optional<std::string>& callsign, const std::optional<chnl_state>& channelState) -> void;
 	auto ToggleChannel(EuroScopePlugIn::CGrountToAirChannel Channel, const std::optional<bool>& rx, const std::optional<bool>& tx) -> void;
 
-	// messages
+	// logs & messages
 	inline auto DisplayDebugMessage(const std::string& msg) -> void {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
+		PLOGD << msg;
 	};
 	inline auto DisplayInfoMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
+		PLOGI << msg;
 	}
 	inline auto DisplayWarnMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
+		PLOGW << msg;
 	}
 
 public:

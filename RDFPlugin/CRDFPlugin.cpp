@@ -10,7 +10,18 @@ CRDFPlugin::CRDFPlugin()
 		MY_PLUGIN_DEVELOPER,
 		MY_PLUGIN_COPYRIGHT)
 {
+	// initialize plog
+	AFX_MANAGE_STATE(AfxGetStaticModuleState());
+	HMODULE pluginModule = AfxGetInstanceHandle();
+	TCHAR pBuffer[MAX_PATH] = { 0 };
+	DWORD moduleNameRes = GetModuleFileName(pluginModule, pBuffer, sizeof(pBuffer) / sizeof(TCHAR) - 1);
+	std::filesystem::path dllPath = moduleNameRes != 0 ? pBuffer : "";
+	auto logPath = dllPath.parent_path() / "RDF.log";
+	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1e6, 1); // 1 MB of 1 file
+	plog::init(plog::verbose, &rollingAppender);
+
 	// RDF window
+	PLOGV << "creating AFV hidden windows";
 	RegisterClass(&windowClassRDF);
 	hiddenWindowRDF = CreateWindow(
 		"RDFHiddenWindowClass",
@@ -26,9 +37,8 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		DisplayWarnMessage("Unable to open communications for RDF.");
+		DisplayWarnMessage("Unable to create AFV hidden window for RDF.");
 	}
-
 	// AFV bridge window
 	RegisterClass(&windowClassAFV);
 	hiddenWindowAFV = CreateWindow(
@@ -45,13 +55,14 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		DisplayWarnMessage("Unable to open communications for AFV bridge.");
+		DisplayWarnMessage("Unable to create AFV hidden window for bridge.");
 	}
 
 	// registration
 	RegisterTagItemType("RDF state", TAG_ITEM_TYPE_RDF_STATE);
 
 	// initialize default settings
+	PLOGV << "initializing default settings";
 	ix::initNetSystem();
 	socketTrackAudio.setHandshakeTimeout(TRACKAUDIO_TIMEOUT_SEC);
 	socketTrackAudio.setMaxWaitBetweenReconnectionRetries(TRACKAUDIO_HEARTBEAT_SEC * 2000); // ms
@@ -67,26 +78,28 @@ CRDFPlugin::CRDFPlugin()
 CRDFPlugin::~CRDFPlugin()
 {
 	// disconnect TrackAudio connection
+	PLOGV << "stopping TrackAudio WS";
 	socketTrackAudio.stop();
+	ix::uninitNetSystem();
 
+	PLOGV << "destroying AFV hidden windows";
 	if (hiddenWindowRDF != nullptr) {
 		DestroyWindow(hiddenWindowRDF);
 	}
 	UnregisterClass("RDFHiddenWindowClass", nullptr);
-
 	if (hiddenWindowAFV != nullptr) {
 		DestroyWindow(hiddenWindowAFV);
 	}
 	UnregisterClass("AfvBridgeHiddenWindowClass", nullptr);
 
-	ix::uninitNetSystem();
+	PLOGV << "RDFPlugin is unloaded";
 }
 
 auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 {
 	std::unique_lock tlock(mtxTransmission);
 	if (message.size()) {
-		DisplayDebugMessage(std::string("AFV message: ") + message);
+		PLOGV << "AFV message: " << message;
 		std::vector<std::string> callsigns;
 		std::istringstream f(message);
 		std::string s;
@@ -115,7 +128,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 {
 	// functions as AFV bridge
 	if (!message.size()) return;
-	DisplayDebugMessage(std::string("AFV message: ") + message);
+	PLOGV << "AFV message: " << message;
 	// format: xxx.xxx:True:False + xxx.xx0:True:False
 
 	// parse message
@@ -158,7 +171,6 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 		UINT g = std::stoi(match[2].str());
 		UINT b = std::stoi(match[3].str());
 		if (r <= 255 && g <= 255 && b <= 255) {
-			DisplayDebugMessage(std::format("R:{} G:{} B:{}", r, g, b));
 			color = RGB(r, g, b);
 		}
 	}
@@ -167,13 +179,13 @@ auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> voi
 auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 {
 	// get TrackAudio config
+	PLOGV << "loading TrackAudio settings";
 	addressTrackAudio = "127.0.0.1:49080";
 	modeTrackAudio = 1;
 	try {
 		const char* cstrEndpoint = GetDataFromSettings(SETTING_ENDPOINT);
 		if (cstrEndpoint != nullptr) {
 			addressTrackAudio = cstrEndpoint;
-			DisplayDebugMessage(std::string("Address: ") + addressTrackAudio);
 		}
 		const char* cstrMode = GetDataFromSettings(SETTING_HELPER_MODE);
 		if (cstrMode != nullptr) {
@@ -181,8 +193,8 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 			if (mode >= -1 && mode <= 2) {
 				modeTrackAudio = mode;
 			}
-			DisplayDebugMessage(std::format("TAMode: {}", modeTrackAudio));
 		}
+		DisplayDebugMessage(std::format("TrackAudio settings: address: {}, mode: {}", addressTrackAudio, modeTrackAudio));
 	}
 	catch (std::runtime_error const& e)
 	{
@@ -193,7 +205,7 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 		DisplayWarnMessage(std::string("Unexpected error: ") + std::to_string(GetLastError()));
 	}
 
-
+	PLOGV << "clearing records and resetting TrackAudio WebSocket";
 	// reset TrackAudio WebSocket
 	socketTrackAudio.stop();
 
@@ -206,11 +218,13 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	// initialize TrackAudio WebSocket
 	socketTrackAudio.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
 	if (modeTrackAudio != -1) {
+		UpdateChannel(std::nullopt, std::nullopt);
 		socketTrackAudio.start();
 		// send request to initialize station states
 		nlohmann::json jmsg;
 		jmsg["type"] = "kGetStationStates";
 		socketTrackAudio.send(jmsg.dump());
+		PLOGV << "kGetStationStates is sent via WS";
 	}
 }
 
@@ -554,6 +568,7 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 	if (callsign && frequency) { // find precise match
 		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
 			if (*callsign == chnl.GetName() && FrequencyIsSame(FrequencyFromMHz(chnl.GetFrequency()), *frequency)) {
+				PLOGV << "precise match is found: " << *callsign << " - " << *frequency;
 				return chnl;
 			}
 		}
@@ -561,6 +576,7 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 	else if (callsign) { // match callsign only
 		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
 			if (*callsign == chnl.GetName()) {
+				PLOGV << "callsign match is found: " << *callsign << " - " << FrequencyFromMHz(chnl.GetFrequency());
 				return chnl;
 			}
 		}
@@ -587,17 +603,20 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 				return nd1.second < nd2.second;
 				});
 			if (minName != nameDistance.end()) {
+				PLOGV << "frequency match is found nearest prim";
 				return SelectGroundToAirChannel(minName->first, frequency);
 			}
 		}
 		else { // prim not set, use the first frequency match
 			for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
 				if (FrequencyIsSame(FrequencyFromMHz(chnl.GetFrequency()), *frequency)) {
+					PLOGV << "frequency match is found without primary";
 					return chnl;
 				}
 			}
 		}
 	}
+	PLOGV << "not found";
 	return EuroScopePlugIn::CGrountToAirChannel();
 }
 
@@ -605,6 +624,7 @@ auto CRDFPlugin::UpdateChannel(const std::optional<std::string>& callsign, const
 {
 	// note: EuroScope channels allow duplication in channel name, but name <-> frequency pair is unique.
 	if (channelState) {
+		PLOGV << callsign.value_or("NULL") << " - " << channelState->frequency;
 		if (channelState->isPrim || channelState->isAtis) {
 			return;
 		}
@@ -616,6 +636,7 @@ auto CRDFPlugin::UpdateChannel(const std::optional<std::string>& callsign, const
 		}
 	}
 	else { // doesn't specify channel or frequency, deactivate all channels
+		PLOGV << "deactivating all";
 		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
 			ToggleChannel(chnl, false, false); // check for prim/atis will be done inside
 		}
@@ -687,7 +708,7 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 				TrackAudioStationStatesHandler(msgValue);
 			}
 			else {
-				DisplayDebugMessage(std::format("WS MSG {} not handled.", msgType));
+				PLOGV << "WS message: " << msg->str;
 			}
 		}
 		else if (msg->type == ix::WebSocketMessageType::Open) {
