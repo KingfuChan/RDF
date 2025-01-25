@@ -17,7 +17,7 @@ CRDFPlugin::CRDFPlugin()
 	DWORD moduleNameRes = GetModuleFileName(pluginModule, pBuffer, sizeof(pBuffer) / sizeof(TCHAR) - 1);
 	std::filesystem::path dllPath = moduleNameRes != 0 ? pBuffer : "";
 	auto logPath = dllPath.parent_path() / "RDF.log";
-	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1e6, 1); // 1 MB of 1 file
+	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1000000, 1); // 1 MB of 1 file
 	plog::init(plog::verbose, &rollingAppender);
 
 	// RDF window
@@ -220,11 +220,7 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	if (modeTrackAudio != -1) {
 		UpdateChannel(std::nullopt, std::nullopt);
 		socketTrackAudio.start();
-		// send request to initialize station states
-		nlohmann::json jmsg;
-		jmsg["type"] = "kGetStationStates";
-		socketTrackAudio.send(jmsg.dump());
-		PLOGV << "kGetStationStates is sent via WS";
+		PLOGV << "TrackAudio ws client started";
 	}
 }
 
@@ -592,19 +588,25 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 			return chnl.second.isPrim;
 			});
 		if (primChannel != allChannels.end()) {
-			// calculate distance of same frequency and add to new map
+			// calculate distance of same frequency
 			std::map<std::string, int> nameDistance; // channel name -> distance to prim
+			int primDistance = std::distance(allChannels.begin(), primChannel);
 			for (auto it = allChannels.begin(); it != allChannels.end(); it++) {
 				if (FrequencyIsSame(it->second.frequency, *frequency)) {
-					nameDistance[it->first] = abs(std::distance(it, primChannel));
+					nameDistance[it->first] = abs(primDistance - std::distance(allChannels.begin(), it));
 				}
 			}
+			// find the closest station
 			auto minName = std::min_element(nameDistance.begin(), nameDistance.end(), [](const auto& nd1, const auto& nd2) {
 				return nd1.second < nd2.second;
 				});
 			if (minName != nameDistance.end()) {
-				PLOGV << "frequency match is found nearest prim";
-				return SelectGroundToAirChannel(minName->first, frequency);
+				for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
+					if (minName->first == chnl.GetName() && FrequencyIsSame(FrequencyFromMHz(chnl.GetFrequency()), *frequency)) {
+						PLOGV << "frequency match is found nearest prim, callsign: " << minName->first;
+						return chnl;
+					}
+				}
 			}
 		}
 		else { // prim not set, use the first frequency match
