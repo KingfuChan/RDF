@@ -740,7 +740,7 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 	try
 	{
 		std::regex rxReload(R"(^.RDF RELOAD$)", std::regex_constants::icase);
-		if (regex_match(cmd, match, rxReload)) {
+		if (std::regex_match(cmd, match, rxReload)) {
 			LoadTrackAudioSettings();
 			{
 				std::unique_lock lock(mtxScreen); // cautious for overlapped lock
@@ -752,6 +752,20 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 				s->newAsrData.clear();
 				LoadDrawingSettings(s->m_ID);
 			}
+			return true;
+		}
+		std::regex rxRefresh(R"(^.RDF REFRESH$)", std::regex_constants::icase);
+		if (std::regex_match(cmd, match, rxRefresh)) {
+			PLOGV << "refreshing RDF records and station states";
+			std::unique_lock tlock(mtxTransmission);
+			curTransmission.clear();
+			preTransmission.clear();
+			tlock.unlock();
+			UpdateChannel(std::nullopt, std::nullopt); // deactivate all channels;
+			nlohmann::json jmsg;
+			jmsg["type"] = "kGetStationStates";
+			socketTrackAudio.send(jmsg.dump());
+			PLOGV << "kGetStationStates is sent via WS";
 			return true;
 		}
 		return ProcessDrawingCommand(sCommandLine);
