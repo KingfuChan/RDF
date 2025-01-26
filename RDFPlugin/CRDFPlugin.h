@@ -33,6 +33,7 @@ constexpr auto SETTING_DRAW_CONTROLLERS = "DrawControllers";
 const int TAG_ITEM_TYPE_RDF_STATE = 1001; // RDF state
 
 // Constants
+constexpr auto UNKNOWN_ERROR_MSG = "Unknown error!";
 constexpr auto FREQUENCY_REDUNDANT = 199999; // kHz
 const double pi = 3.141592653589793;
 const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuroScopeCoord
@@ -188,20 +189,17 @@ private:
 	auto UpdateChannel(const std::optional<std::string>& callsign, const std::optional<chnl_state>& channelState) -> void;
 	auto ToggleChannel(EuroScopePlugIn::CGrountToAirChannel Channel, const std::optional<bool>& rx, const std::optional<bool>& tx) -> void;
 
-	// logs & messages
+	// messages
 	inline auto DisplayDebugMessage(const std::string& msg) -> void {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
-		PLOGD << msg;
 	};
 	inline auto DisplayInfoMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
-		PLOGI << msg;
 	}
 	inline auto DisplayWarnMessage(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
-		PLOGW << msg;
 	}
 
 public:
