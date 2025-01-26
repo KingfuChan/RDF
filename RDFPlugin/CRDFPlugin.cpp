@@ -18,7 +18,19 @@ CRDFPlugin::CRDFPlugin()
 	std::filesystem::path dllPath = moduleNameRes != 0 ? pBuffer : "";
 	auto logPath = dllPath.parent_path() / "RDF.log";
 	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1000000, 1); // 1 MB of 1 file
-	plog::init(plog::debug, &rollingAppender);
+	auto severity = plog::debug;
+	plog::init(severity, &rollingAppender);
+	try {
+		auto cstrLogLevel = GetDataFromSettings(SETTING_LOG_LEVEL);
+		if (cstrLogLevel != nullptr) {
+			severity = max(severity, plog::severityFromString(cstrLogLevel));
+			plog::get()->setMaxSeverity(severity);
+		}
+	}
+	catch (...) {
+		PLOGE << "invalid plog severity";
+	}
+
 
 	// RDF window
 	PLOGV << "creating AFV hidden windows";
