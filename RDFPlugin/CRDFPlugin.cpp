@@ -18,7 +18,7 @@ CRDFPlugin::CRDFPlugin()
 	std::filesystem::path dllPath = moduleNameRes != 0 ? pBuffer : "";
 	auto logPath = dllPath.parent_path() / "RDF.log";
 	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1000000, 1); // 1 MB of 1 file
-	plog::init(plog::verbose, &rollingAppender);
+	plog::init(plog::debug, &rollingAppender);
 
 	// RDF window
 	PLOGV << "creating AFV hidden windows";
@@ -194,7 +194,7 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 				modeTrackAudio = mode;
 			}
 		}
-		DisplayDebugMessage(std::format("TrackAudio settings: address: {}, mode: {}", addressTrackAudio, modeTrackAudio));
+		DisplayDebugMessage(std::format("TrackAudio settings: address: {}, mode: {}", addressTrackAudio, (int)modeTrackAudio));
 	}
 	catch (std::runtime_error const& e)
 	{
@@ -551,6 +551,8 @@ auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data)
 	// used for update message and for "kStationStates" sections
 	// data is json["value"]
 	// frequencies in kHz
+	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT)
+		return; // prevent conflict with multiple ES instances. Since AFV hidden window it unique, only disable TrackAudio
 	std::string callsign = data.value("callsign", "");
 	chnl_state state;
 	state.frequency = FrequencyFromHz(data.value("frequency", FREQUENCY_REDUNDANT));
@@ -694,23 +696,23 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			std::string msgType = data["type"];
 			nlohmann::json msgValue = data["value"];
 			if (msgType == "kRxBegin") {
-				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
+				PLOGD << "WS MSG" << msgType << ": " << msgValue.dump();
 				TrackAudioTransmissionHandler(msgValue, false);
 			}
 			else if (msgType == "kRxEnd") {
-				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
+				PLOGD << "WS MSG" << msgType << ": " << msgValue.dump();
 				TrackAudioTransmissionHandler(msgValue, true);
 			}
-			else if (msgType == "kStationStateUpdate") {
-				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
+			else if (msgType == "kStationStateUpdate" && modeTrackAudio > 0) { // only handle with sync on
+				PLOGD << "WS MSG" << msgType << ": " << msgValue.dump();
 				TrackAudioStationStateUpdateHandler(msgValue);
 			}
-			else if (msgType == "kStationStates") {
-				DisplayDebugMessage(std::format("WS MSG {}: {}", msgType, msgValue.dump()));
+			else if (msgType == "kStationStates" && modeTrackAudio > 0) {// only handle with sync on
+				PLOGD << "WS MSG" << msgType << ": " << msgValue.dump();
 				TrackAudioStationStatesHandler(msgValue);
 			}
 			else {
-				PLOGV << "WS message: " << msg->str;
+				PLOGV << "WS MSG: " << msg->str;
 			}
 		}
 		else if (msg->type == ix::WebSocketMessageType::Open) {

@@ -139,7 +139,7 @@ private:
 	callsign_position preTransmission;
 
 	// TrackAudio WebSocket
-	int modeTrackAudio; // -1: no RDF, 0: no station sync, 1: station sync TA -> RDF, 2: station sync TA <-> RDF
+	std::atomic_int modeTrackAudio; // -1: no RDF, 0: no station sync, 1: station sync TA -> RDF, 2: station sync TA <-> RDF
 	std::string addressTrackAudio;
 	ix::WebSocket socketTrackAudio;
 	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
