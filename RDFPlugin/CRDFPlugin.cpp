@@ -263,6 +263,7 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 	PLOGD << "loading drawing settings, ID " << screenID;
 	auto GetSetting = [&](const auto& varName) -> std::string {
 		if (screenID != -1) {
+			// BUG: close asr then reload will cause crash. need another way to store these pointers
 			auto ds = vecScreen[screenID]->GetDataFromAsr(varName);
 			if (ds != nullptr) {
 				return ds;
@@ -394,7 +395,7 @@ auto CRDFPlugin::ProcessDrawingCommand(const std::string& command, const int& sc
 		};
 	try
 	{
-		PLOGV << "drawing command: " << command;
+		PLOGV << "command: " << command;
 		std::unique_lock lock(mtxScreen);
 		std::shared_ptr<draw_settings> targetSetting = setScreen[screenID];
 		std::smatch match;
@@ -616,7 +617,7 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 			}
 		}
 	}
-	else if (frequency) { // find matching frequency that is nearest prim
+	if (frequency) { // find matching frequency that is nearest prim
 		// make a copy of EuroScope data for comparison
 		std::map<std::string, chnl_state> allChannels; // channel name (sorted) -> chnl_state
 		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {

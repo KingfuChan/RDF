@@ -15,7 +15,7 @@ constexpr auto TRACKAUDIO_PARAM_WS = "/ws";
 constexpr auto TRACKAUDIO_TIMEOUT_SEC = 1;
 constexpr auto TRACKAUDIO_HEARTBEAT_SEC = 30;
 // Global settings
-constexpr auto SETTING_LOG_LEVEL = "LogLevel"; // see plog::Severity, default info=4;
+constexpr auto SETTING_LOG_LEVEL = "LogLevel"; // see plog::Severity
 constexpr auto SETTING_ENDPOINT = "Endpoint";
 constexpr auto SETTING_HELPER_MODE = "TrackAudioMode"; // Default: 1 (station sync TA -> RDF)
 // Shared settings (ASR specific)
