@@ -8,6 +8,9 @@ Supports *Audio for VATSIM standalone client* through hidden window messaging. T
 
 [*TrackAudio*](https://github.com/pierr3/TrackAudio) is a multi-platform Audio-For-VATSIM ATC client for Windows, macOS and Linux. This improved RDF plugin utilizes [*TrackAudio*'s WebSocket SDK](https://github.com/pierr3/TrackAudio/wiki/SDK-documentation) to synchronize active frequencies and to achieve radio-direction-finding.
 
+> [!IMPORTANT]
+> Since RDFPlugin version 1.4.1+, *TrackAudio* [1.3.0 Beta 5](https://github.com/pierr3/TrackAudio/releases/tag/1.3.0-beta.5) is required due to changes in *TrackAudio* SDK.
+
 ## More Customizations
 
 + (Existing feature) RGB settings for circle or line, and different color for concurrent transmission.
@@ -30,7 +33,9 @@ This table shows all configurable items.
 
 | Entry Name                | Command Line Keyword | Range       | Default Value   |
 | ------------------------- | -------------------- | ----------- | --------------- |
+| LogLevel                  |                      |             | None            |
 | Endpoint                  |                      |             | 127.0.0.1:49080 |
+| TrackAudioMode            |                      | -1, 0, 1    | 1               |
 | RGB                       | RGB                  | RRR:GGG:BBB | 255:255:255     |
 | ConcurrentTransmissionRGB | CTRGB                | RRR:GGG:BBB | 255:0:0         |
 | Radius                    | RADIUS               | (0, +inf)   | 20              |
@@ -49,7 +54,9 @@ In settings files the default is like the following:
 ```text
 PLUGINS
 <eventually existing configuration lines>
+RDF Plugin for Euroscope:LogLevel:none
 RDF Plugin for Euroscope:Endpoint:127.0.0.1:49080
+RDF Plugin for Euroscope:TrackAudioMode:1
 RDF Plugin for Euroscope:RGB:255:255:255
 RDF Plugin for Euroscope:ConcurrentTransmissionRGB:255:0:0
 RDF Plugin for Euroscope:Radius:20
@@ -63,17 +70,30 @@ RDF Plugin for Euroscope:DrawControllers:0
 END
 ```
 
++ **LogLevel** is none by default. Accepted levels include none, error, warning, info, debug, verbose. Log levels other than none will automatically save an *RDFPlugin.log* file next to DLL file.
 + **Endpoint** should include address and port only. E.g. 127.0.0.1:49080 or localhost:49080, etc.
++ **TrackAudioMode** defines the behaviour between RDF and *TrackAudio*. -1 will disable all *TrackAudio* features; 0 will only enable radio-direction-finder; 1 will also update EuroScope channels when *TrackAudio* stations are updated.
 + **RGB, ConcurrentTransmissionRGB**, see [README](#readme-for-legacy-versions) below.
 + **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
 + **DrawControllers** is compatible with both *TrackAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be drawn as well. 0 means OFF and other numeric value means ON.
 
-When EuroScope is running, you can reload settings in *Settings File Setup* and then enter `.RDF RELOAD` (case-insensitive) in command line.
+## General Command Line Functions
 
+`.RDF REFRESH`
+
++ Clear transmission records.
++ (*Audio for VATSIM standalone client*) set all channels to off (except primary & active ATIS).
++ (*TrackAudio*, when **TrackAudioMode** is not -1 or 0) refresh all channels to sync *TrackAudio*.
+
+`.RDF RELOAD`
+
++ Reload settings in *Settings File Setup*.
++ Discard unsaved modifications and restore configurations per ASR.
++ Reset *TrackAudio* connection.
+  
 > [!TIP]
-> `.RDF RELOAD` can also be used to reset TrackAudio connection.
->
-> To change the endpoint for *TrackAudio* without exitting EuroScope, you may modify plugin settings file, then reload settings file inside EuroScope and run this command.
+> To change the endpoint or mode for *TrackAudio* without exitting EuroScope, you may modify plugin settings file, reload settings file inside EuroScope, then run `.RDF RELOAD`.
+> To change log level, the only way is to unload & reload RDFPlugin.dll inside EuroScope plugin setup dialog.
 
 ## Per ASR Configurations
 
@@ -94,11 +114,6 @@ PLUGIN:RDF Plugin for Euroscope:DrawControllers:1
 ```
 
 When an ASR is opened, the plugin will use the configurations in the sequence of **ASR > plugin settings file > default value**.
-
-> [!NOTE]
-> `.RDF RELOAD` commmand line will discard all command line configurations in this session and restore ASR-specific configurations.
->
-> You may change global settings by modifying plugin settings file, reloading settings in EuroScope dialog, and executing this command.
 
 ## Random Offset Schematic
 
@@ -134,7 +149,7 @@ When an ASR is opened, the plugin will use the configurations in the sequence of
 + *Audio for VATSIM standalone client* doesn't provide callsign for RX/TX, so this plugin has to guess the corresponding callsign and it doesn't guarantee 100% correct toggles. But it shouldn't affect text receive and transmit function.
 + When using professional correlation mode (S or C) in EuroScope, it's possible some aircraft won't be radio-direction-found because the plugin doesn't know the callsign for an uncorrelated radar target.
 + For dual pilot situation where the transmitting pilot logs in as observer, this plugin will try to drop the last character of the observer callsign and find again if this dropped character is between A-Z. This feature may cause inaccurate radio-direction.
-+ Because of new drawing behaviour introduced after *EuroScope v3.2.3*, switching between ASRs may not change the plugin drawing configurations. In such case, simply pan your view to update configurations per ASR.
++ Because of new drawing behaviour introduced after *EuroScope v3.2.3*, switching between ASRs may not change the plugin drawing configurations. In such case, simply pan/zoom your view to update configurations per ASR.
 
 ## Credits
 
