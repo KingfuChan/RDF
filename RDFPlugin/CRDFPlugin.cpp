@@ -16,7 +16,7 @@ CRDFPlugin::CRDFPlugin()
 	TCHAR pBuffer[MAX_PATH] = { 0 };
 	DWORD moduleNameRes = GetModuleFileName(pluginModule, pBuffer, sizeof(pBuffer) / sizeof(TCHAR) - 1);
 	std::filesystem::path dllPath = moduleNameRes != 0 ? pBuffer : "";
-	auto logPath = dllPath.parent_path() / "RDF.log";
+	auto logPath = dllPath.parent_path() / "RDFPlugin.log";
 	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1000000, 1); // 1 MB of 1 file
 #ifdef _DEBUG
 	auto severity = plog::debug;
@@ -30,6 +30,7 @@ CRDFPlugin::CRDFPlugin()
 			severity = max(severity, plog::severityFromString(cstrLogLevel));
 			plog::get()->setMaxSeverity(severity);
 		}
+		PLOGI << "log level is set to " << plog::severityToString(severity);
 	}
 	catch (...) {
 		PLOGE << "invalid plog severity";
@@ -263,10 +264,12 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 	PLOGD << "loading drawing settings, ID " << screenID;
 	auto GetSetting = [&](const auto& varName) -> std::string {
 		if (screenID != -1) {
-			// BUG: close asr then reload will cause crash. need another way to store these pointers
-			auto ds = vecScreen[screenID]->GetDataFromAsr(varName);
-			if (ds != nullptr) {
-				return ds;
+			auto& screenPtr = vecScreen[screenID];
+			if (screenPtr->m_Opened) {
+				auto ds = screenPtr->GetDataFromAsr(varName);
+				if (ds != nullptr) {
+					return ds;
+				}
 			}
 		} // fallback onto plugin setting
 		auto d = GetDataFromSettings(varName);
