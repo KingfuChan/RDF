@@ -6,7 +6,7 @@
 
 // Plugin info
 constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-constexpr auto MY_PLUGIN_VERSION = "1.4.0";
+constexpr auto MY_PLUGIN_VERSION = "1.4.1";
 constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan";
 constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3 License, Copyright (c) 2023 Kingfu Chan";
 // TrackAudio URLs and parameters
@@ -15,7 +15,9 @@ constexpr auto TRACKAUDIO_PARAM_WS = "/ws";
 constexpr auto TRACKAUDIO_TIMEOUT_SEC = 1;
 constexpr auto TRACKAUDIO_HEARTBEAT_SEC = 30;
 // Global settings
+constexpr auto SETTING_LOG_LEVEL = "LogLevel"; // see plog::Severity
 constexpr auto SETTING_ENDPOINT = "Endpoint";
+constexpr auto SETTING_HELPER_MODE = "TrackAudioMode"; // Default: 1 (station sync TA -> RDF)
 // Shared settings (ASR specific)
 constexpr auto SETTING_RGB = "RGB";
 constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
@@ -30,21 +32,44 @@ constexpr auto SETTING_DRAW_CONTROLLERS = "DrawControllers";
 // Tag item type
 const int TAG_ITEM_TYPE_RDF_STATE = 1001; // RDF state
 
+// Constants
+constexpr auto UNKNOWN_ERROR_MSG = "Unknown error!";
+constexpr auto FREQUENCY_REDUNDANT = 199999; // kHz
+const double pi = 3.141592653589793;
+const double EarthRadius = 3438.0; // nautical miles, referred to internal CEuroScopeCoord
+static constexpr auto GEOM_RAD_FROM_DEG(const double& deg) -> double { return deg * pi / 180.0; };
+static constexpr auto GEOM_DEG_FROM_RAD(const double& rad) -> double { return rad / pi * 180.0; };
+
+// Inline functions
+inline static auto FrequencyFromMHz(const double& freq) -> int {
+	return (int)round(freq * 1000.0);
+}
+inline static auto FrequencyFromHz(const double& freq) -> int {
+	return (int)round(freq / 1000.0);
+}
+inline static auto FrequencyIsSame(const auto& freq1, const auto& freq2) -> bool { // return true if same frequency, frequency in kHz
+	return abs(freq1 - freq2) <= 10;
+}
+
+// Draw position
 typedef struct _draw_position {
 	EuroScopePlugIn::CPosition position;
 	double radius;
 	_draw_position(void) :
 		position(),
 		radius(0) // invalid value
-	{};
+	{
+	};
 	_draw_position(EuroScopePlugIn::CPosition _position, double _radius) :
 		position(_position),
 		radius(_radius)
-	{};
+	{
+	};
 } draw_position;
 typedef std::map<std::string, draw_position> callsign_position;
 auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void;
 
+// Draw settings
 typedef struct _draw_settings {
 	COLORREF rdfRGB;
 	COLORREF rdfConcurRGB;
@@ -71,11 +96,32 @@ typedef struct _draw_settings {
 	};
 } draw_settings;
 
-typedef struct _freq_data {
-	int frequency = 199999;
+// Frequency & channel state
+typedef struct _freq_state {
+	std::optional<std::string> callsign; // can be empty
 	bool tx = false;
-} freq_data;
-typedef std::map<std::string, freq_data> callsign_frequency;
+} freq_state;
+typedef struct _es_chnl_state {
+	bool isPrim;
+	bool isAtis;
+	int frequency;
+	bool rx;
+	bool tx;
+	_es_chnl_state(void) {
+		isPrim = false;
+		isAtis = false;
+		frequency = FREQUENCY_REDUNDANT;
+		rx = false;
+		tx = false;
+	}
+	_es_chnl_state(EuroScopePlugIn::CGrountToAirChannel channel) {
+		isPrim = channel.GetIsPrimary();
+		isAtis = channel.GetIsAtis();
+		frequency = FrequencyFromMHz(channel.GetFrequency());
+		rx = channel.GetIsTextReceiveOn();
+		tx = channel.GetIsTextTransmitOn();
+	}
+} chnl_state;
 
 class CRDFPlugin : public EuroScopePlugIn::CPlugIn
 {
@@ -89,14 +135,13 @@ private:
 	std::shared_mutex mtxScreen;
 	auto GetDrawingParam(void) -> draw_settings const;
 
-	// drawing records and transmitting frequency records
+	// drawing records
 	std::shared_mutex mtxTransmission;
 	callsign_position curTransmission;
 	callsign_position preTransmission;
-	std::shared_mutex mtxFrequency;
-	callsign_frequency curFrequencies;
 
 	// TrackAudio WebSocket
+	std::atomic_int modeTrackAudio; // -1: no RDF, 0: no station sync, 1: station sync TA -> RDF, 2: station sync TA <-> RDF
 	std::string addressTrackAudio;
 	ix::WebSocket socketTrackAudio;
 	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
@@ -133,14 +178,16 @@ private:
 	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
 	auto LoadTrackAudioSettings(void) -> void;
 	auto LoadDrawingSettings(const int& screenID = -1) -> void;
-	auto ParseDrawingSettings(const std::string& command, const int& screenID = -1) -> bool;
+	auto ProcessDrawingCommand(const std::string& command, const int& screenID = -1) -> bool;
 
 	// functional things 
 	auto GenerateDrawPosition(std::string callsign) -> draw_position;
 	auto TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void;
-	auto TrackAudioChannelHandler(const nlohmann::json& data) -> void;
-	auto UpdateChannels(void) -> void;
-	auto ToggleChannels(EuroScopePlugIn::CGrountToAirChannel Channel, const int& tx = -1, const int& rx = -1) -> void;
+	auto TrackAudioStationStatesHandler(const nlohmann::json& data) -> void;
+	auto TrackAudioStationStateUpdateHandler(const nlohmann::json& data) -> void;
+	auto SelectGroundToAirChannel(const std::optional<std::string>& callsign, const std::optional<int>& frequency) -> EuroScopePlugIn::CGrountToAirChannel;
+	auto UpdateChannel(const std::optional<std::string>& callsign, const std::optional<chnl_state>& channelState) -> void;
+	auto ToggleChannel(EuroScopePlugIn::CGrountToAirChannel Channel, const std::optional<bool>& rx, const std::optional<bool>& tx) -> void;
 
 	// messages
 	inline auto DisplayDebugMessage(const std::string& msg) -> void {

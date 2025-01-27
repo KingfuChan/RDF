@@ -6,6 +6,7 @@
 CRDFScreen::CRDFScreen(const int& ID)
 {
 	m_ID = ID;
+	m_Opened = true;
 }
 
 CRDFScreen::~CRDFScreen()
@@ -28,6 +29,7 @@ auto CRDFScreen::OnAsrContentToBeSaved(void) -> void
 
 auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 {
+	m_Opened = false; // should not delete this to avoid crash
 }
 
 auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
@@ -102,7 +104,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 
 auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 {
-	return GetRDFPlugin()->ParseDrawingSettings(sCommandLine, m_ID);
+	return GetRDFPlugin()->ProcessDrawingCommand(sCommandLine, m_ID);
 }
 
 auto CRDFScreen::GetRDFPlugin(void) -> CRDFPlugin*

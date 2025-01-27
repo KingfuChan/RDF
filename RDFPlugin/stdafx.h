@@ -8,6 +8,7 @@
 #define WIN32_LEAN_AND_MEAN             // Exclude rarely-used stuff from Windows headers
 // Windows Header Files
 #include <windows.h>
+#include <afxwin.h>
 
 // reference additional headers your program requires here
 
@@ -29,6 +30,7 @@
 #include <stdexcept>
 #include <algorithm>
 #include <memory>
+#include <optional>
 // networking
 #include <httplib.h>
 #include <ixwebsocket/IXNetSystem.h>
@@ -41,3 +43,5 @@
 // external
 #include <nlohmann/json.hpp>
 #include <EuroScopePlugIn.h>
+#include <plog/Log.h>
+#include <plog/Initializers/RollingFileInitializer.h>

@@ -144,6 +144,7 @@ When an ASR is opened, the plugin will use the configurations in the sequence of
 + [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib): HTTP library.
 + [machinezone/IXWebSocket](https://github.com/machinezone/IXWebSocket): WebSocket library.
 + [nlohmann/json](https://github.com/nlohmann/json): json handling.
++ [SergiusTheBest/plog](https://github.com/SergiusTheBest/plog): logging library.
 
 ## Developing
 

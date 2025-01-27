@@ -3,6 +3,7 @@
   "dependencies": [
     "cpp-httplib",
     "nlohmann-json",
-    "ixwebsocket"
+    "ixwebsocket",
+    "plog"
   ]
 }

@@ -23,6 +23,8 @@ public:
 	CRDFScreen(const int& ID);
 	~CRDFScreen(void);
 
+	bool m_Opened;
+
 	virtual auto OnAsrContentLoaded(bool Loaded) -> void;
 	virtual auto OnAsrContentToBeSaved(void) -> void;
 	virtual auto OnAsrContentToBeClosed(void) -> void;
