@@ -6,7 +6,7 @@
 
 // Plugin info
 constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-constexpr auto MY_PLUGIN_VERSION = "1.4.1";
+constexpr auto MY_PLUGIN_VERSION = "1.4.2";
 constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan";
 constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3 License, Copyright (c) 2023 Kingfu Chan";
 // TrackAudio URLs and parameters
@@ -190,15 +190,15 @@ private:
 	auto ToggleChannel(EuroScopePlugIn::CGrountToAirChannel Channel, const std::optional<bool>& rx, const std::optional<bool>& tx) -> void;
 
 	// messages
-	inline auto DisplayDebugMessage(const std::string& msg) -> void {
+	inline auto DisplayMessageDebug(const std::string& msg) -> void {
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
 	};
-	inline auto DisplayInfoMessage(const std::string& msg) -> void {
+	inline auto DisplayMessageSilent(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
 	}
-	inline auto DisplayWarnMessage(const std::string& msg) -> void {
+	inline auto DisplayMessageUnread(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), true, true, true, false, false);
 	}
 

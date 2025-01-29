@@ -7,10 +7,12 @@ CRDFScreen::CRDFScreen(const int& ID)
 {
 	m_ID = ID;
 	m_Opened = true;
+	PLOGD << "created, ID: " << m_ID;
 }
 
 CRDFScreen::~CRDFScreen()
 {
+	PLOGD << "screen destroyed, ID: " << m_ID;
 }
 
 auto CRDFScreen::OnAsrContentLoaded(bool Loaded) -> void
@@ -18,11 +20,13 @@ auto CRDFScreen::OnAsrContentLoaded(bool Loaded) -> void
 	if (Loaded) { // ASR load finished
 		GetRDFPlugin()->LoadDrawingSettings(m_ID);
 	}
+	PLOGD << "ID: " << m_ID;
 }
 
 auto CRDFScreen::OnAsrContentToBeSaved(void) -> void
 {
 	for (auto& s : newAsrData) {
+		PLOGD << "saving ASR content: " << s.first << " - " << s.second.value;
 		SaveDataToAsr(s.first.c_str(), s.second.descr.c_str(), s.second.value.c_str());
 	}
 }
@@ -30,11 +34,13 @@ auto CRDFScreen::OnAsrContentToBeSaved(void) -> void
 auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 {
 	m_Opened = false; // should not delete this to avoid crash
+	PLOGD << "screen closed, ID " << m_ID;
 }
 
 auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
 	if (Phase == EuroScopePlugIn::REFRESH_PHASE_BACK_BITMAP) {
+		PLOGV << "updating vidScreen: " << m_ID;
 		GetRDFPlugin()->vidScreen = m_ID;
 		return;
 	}

@@ -53,9 +53,9 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		std::string wmsg = "Unable to create AFV hidden window for RDF.";
-		PLOGW << wmsg;
-		DisplayWarnMessage(wmsg);
+		std::string logMsg = "Unable to create AFV hidden window for RDF.";
+		PLOGE << logMsg;
+		DisplayMessageUnread(logMsg);
 	}
 	// AFV bridge window
 	RegisterClass(&windowClassAFV);
@@ -73,9 +73,9 @@ CRDFPlugin::CRDFPlugin()
 		reinterpret_cast<LPVOID>(this)
 	);
 	if (GetLastError() != S_OK) {
-		std::string wmsg = "Unable to create AFV hidden window for bridge.";
-		PLOGW << wmsg;
-		DisplayWarnMessage(wmsg);
+		std::string logMsg = "Unable to create AFV hidden window for bridge.";
+		PLOGE << logMsg;
+		DisplayMessageUnread(logMsg);
 	}
 
 	// registration
@@ -92,9 +92,9 @@ CRDFPlugin::CRDFPlugin()
 	LoadTrackAudioSettings();
 	LoadDrawingSettings();
 
-	auto imsg = std::format("Version {} Loaded.", MY_PLUGIN_VERSION);
-	PLOGI << imsg;
-	DisplayInfoMessage(imsg);
+	auto logMsg = std::format("Version {} Loaded.", MY_PLUGIN_VERSION);
+	PLOGI << logMsg;
+	DisplayMessageSilent(logMsg);
 }
 
 CRDFPlugin::~CRDFPlugin()
@@ -114,7 +114,7 @@ CRDFPlugin::~CRDFPlugin()
 	}
 	UnregisterClass("AfvBridgeHiddenWindowClass", nullptr);
 
-	PLOGD << "RDFPlugin is unloaded";
+	PLOGI << "RDFPlugin is unloaded";
 }
 
 auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
@@ -173,6 +173,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	}
 	catch (std::exception const& e) {
 		PLOGE << "AFV msg parse error: " << message << ", " << e.what();
+		return;
 	}
 	catch (...) {
 		PLOGE << "Error parsing AFV message: " << message;
@@ -220,17 +221,17 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 				modeTrackAudio = mode;
 			}
 		}
-		PLOGD << "TrackAudio address: " << addressTrackAudio << ", mode: " << modeTrackAudio.load();
+		PLOGI << "TrackAudio address: " << addressTrackAudio << ", mode: " << modeTrackAudio.load();
 	}
 	catch (std::exception const& e)
 	{
 		PLOGE << "Error: " << e.what();
-		DisplayWarnMessage(std::string("Error: ") + e.what());
+		DisplayMessageUnread(std::string("Error: ") + e.what());
 	}
 	catch (...)
 	{
 		PLOGE << UNKNOWN_ERROR_MSG;
-		DisplayWarnMessage(UNKNOWN_ERROR_MSG);
+		DisplayMessageUnread(UNKNOWN_ERROR_MSG);
 	}
 
 	// stop TrackAudio WebSocket
@@ -261,7 +262,7 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
 	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
 
-	PLOGD << "loading drawing settings, ID " << screenID;
+	PLOGI << "loading drawing settings, ID " << screenID;
 	auto GetSetting = [&](const auto& varName) -> std::string {
 		if (screenID != -1) {
 			auto& screenPtr = vecScreen[screenID];
@@ -365,16 +366,17 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 			targetSetting->drawController = (bool)std::stoi(cstrController);
 			PLOGV << SETTING_DRAW_CONTROLLERS << ": " << targetSetting->drawController;
 		}
+		PLOGD << "drawing settings loaded";
 	}
 	catch (std::exception const& e)
 	{
 		PLOGE << "Error: " << e.what();
-		DisplayWarnMessage(std::string("Error: ") + e.what());
+		DisplayMessageUnread(std::string("Error: ") + e.what());
 	}
 	catch (...)
 	{
 		PLOGE << UNKNOWN_ERROR_MSG;
-		DisplayWarnMessage(UNKNOWN_ERROR_MSG);
+		DisplayMessageUnread(UNKNOWN_ERROR_MSG);
 	}
 }
 
@@ -385,15 +387,15 @@ auto CRDFPlugin::ProcessDrawingCommand(const std::string& command, const int& sc
 	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
 		if (screenID != -1) {
 			vecScreen[screenID]->AddAsrDataToBeSaved(varName, varDescr, val);
-			auto imsg = std::format("{}: {} (ASR)", varDescr, val);
-			PLOGI << imsg;
-			DisplayInfoMessage(imsg);
+			auto logMsg = std::format("{}: {} (ASR)", varDescr, val);
+			PLOGI << logMsg;
+			DisplayMessageSilent(logMsg);
 		}
 		else {
 			SaveDataToSettings(varName, varDescr, val);
-			auto imsg = std::format("{}: {}", varDescr, val);
-			PLOGI << imsg;
-			DisplayInfoMessage(imsg);
+			auto logMsg = std::format("{}: {}", varDescr, val);
+			PLOGI << logMsg;
+			DisplayMessageSilent(logMsg);
 		}
 		};
 	try
@@ -484,11 +486,11 @@ auto CRDFPlugin::ProcessDrawingCommand(const std::string& command, const int& sc
 	catch (std::exception const& e)
 	{
 		PLOGE << "Error: " << e.what();
-		DisplayWarnMessage(std::string("Error: ") + e.what());
+		DisplayMessageUnread(std::string("Error: ") + e.what());
 	}
 	catch (...) {
 		PLOGE << UNKNOWN_ERROR_MSG;
-		DisplayWarnMessage(UNKNOWN_ERROR_MSG);
+		DisplayMessageUnread(UNKNOWN_ERROR_MSG);
 	}
 	return false;
 }
@@ -592,8 +594,9 @@ auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data)
 	// used for update message and for "kStationStates" sections
 	// data is json["value"]
 	// frequencies in kHz
-	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT)
+	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT) {
 		return; // prevent conflict with multiple ES instances. Since AFV hidden window it unique, only disable TrackAudio
+	}
 	std::string callsign = data.value("callsign", "");
 	chnl_state state;
 	state.frequency = FrequencyFromHz(data.value("frequency", FREQUENCY_REDUNDANT));
@@ -655,13 +658,13 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 		else { // prim not set, use the first frequency match
 			for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
 				if (FrequencyIsSame(FrequencyFromMHz(chnl.GetFrequency()), *frequency)) {
-					PLOGD << "frequency match is found without primary, callsign: " << chnl.GetName();
+					PLOGD << "frequency match is found without prim, callsign: " << chnl.GetName();
 					return chnl;
 				}
 			}
 		}
 	}
-	PLOGV << "not found";
+	PLOGD << "not found";
 	return EuroScopePlugIn::CGrountToAirChannel();
 }
 
@@ -669,16 +672,10 @@ auto CRDFPlugin::UpdateChannel(const std::optional<std::string>& callsign, const
 {
 	// note: EuroScope channels allow duplication in channel name, but name <-> frequency pair is unique.
 	if (channelState) {
-		if (channelState->isPrim || channelState->isAtis) {
-			PLOGD << "prim: " << channelState->isPrim << " atis: " << channelState->isAtis;
-			return;
-		}
-		else {
-			PLOGD << callsign.value_or("NULL") << " - " << channelState->frequency;
-			auto chnl = SelectGroundToAirChannel(callsign, channelState->frequency);
-			if (chnl.IsValid()) {
-				ToggleChannel(chnl, channelState->rx, channelState->tx);
-			}
+		PLOGD << callsign.value_or("NULL") << " - " << channelState->frequency;
+		auto chnl = SelectGroundToAirChannel(callsign, channelState->frequency);
+		if (chnl.IsValid()) {
+			ToggleChannel(chnl, channelState->rx, channelState->tx);
 		}
 	}
 	else { // doesn't specify channel or frequency, deactivate all channels
@@ -691,20 +688,25 @@ auto CRDFPlugin::UpdateChannel(const std::optional<std::string>& callsign, const
 
 auto CRDFPlugin::ToggleChannel(EuroScopePlugIn::CGrountToAirChannel Channel, const std::optional<bool>& rx, const std::optional<bool>& tx) -> void
 {
-	if (!Channel.IsValid() || Channel.GetIsAtis() || Channel.GetIsPrimary()) {
+	if (!Channel.IsValid()) {
+		PLOGD << "invalid CGrountToAirChannel, skipping";
+		return;
+	}
+	else if (Channel.GetIsAtis() || Channel.GetIsPrimary()) {
+		PLOGD << "skipping, atis: " << Channel.GetIsAtis() << " prim: " << Channel.GetIsPrimary();
 		return;
 	}
 	if (rx && *rx != Channel.GetIsTextReceiveOn()) {
 		Channel.ToggleTextReceive();
-		std::string dmsg = std::format("RX toggle: {} frequency: {} ", Channel.GetName(), std::to_string(Channel.GetFrequency()));
-		PLOGD << dmsg;
-		DisplayDebugMessage(dmsg);
+		std::string logMsg = std::format("RX toggle: {} frequency: {} ", Channel.GetName(), std::to_string(Channel.GetFrequency()));
+		PLOGI << logMsg;
+		DisplayMessageDebug(logMsg);
 	}
 	if (tx && *tx != Channel.GetIsTextTransmitOn()) {
 		Channel.ToggleTextTransmit();
-		std::string dmsg = std::format("TX toggle: {} frequency: {} ", Channel.GetName(), std::to_string(Channel.GetFrequency()));
-		PLOGD << dmsg;
-		DisplayDebugMessage(dmsg);
+		std::string logMsg = std::format("TX toggle: {} frequency: {} ", Channel.GetName(), std::to_string(Channel.GetFrequency()));
+		PLOGI << logMsg;
+		DisplayMessageDebug(logMsg);
 	}
 }
 
@@ -712,6 +714,7 @@ auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
 {
 	draw_settings res;
 	try {
+		PLOGV << "ID: " << (int)vidScreen;
 		std::shared_lock<std::shared_mutex> lock(mtxScreen);
 		res = *setScreen.at(vidScreen);
 	}
@@ -734,54 +737,47 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 {
 	try {
 		if (msg->type == ix::WebSocketMessageType::Message) {
+			PLOGV << "WS MSG: " << msg->str;
 			auto data = nlohmann::json::parse(msg->str);
 			std::string msgType = data["type"];
 			nlohmann::json msgValue = data["value"];
 			if (msgType == "kRxBegin") {
-				PLOGD << "WS MSG" << msgType << ": " << msgValue.dump();
 				TrackAudioTransmissionHandler(msgValue, false);
 			}
 			else if (msgType == "kRxEnd") {
-				PLOGD << "WS MSG" << msgType << ": " << msgValue.dump();
 				TrackAudioTransmissionHandler(msgValue, true);
 			}
 			else if (msgType == "kStationStateUpdate" && modeTrackAudio > 0) { // only handle with sync on
-				PLOGD << "WS MSG" << msgType << ": " << msgValue.dump();
 				TrackAudioStationStateUpdateHandler(msgValue);
 			}
 			else if (msgType == "kStationStates" && modeTrackAudio > 0) {// only handle with sync on
-				PLOGD << "WS MSG" << msgType << ": " << msgValue.dump();
 				TrackAudioStationStatesHandler(msgValue);
-			}
-			else {
-				PLOGV << "WS MSG: " << msg->str;
 			}
 		}
 		else if (msg->type == ix::WebSocketMessageType::Open) {
 			// check for TrackAudio presense
+			PLOGI << "WS OPEN";
 			httplib::Client cli(std::format("http://{}", addressTrackAudio));
 			cli.set_connection_timeout(TRACKAUDIO_TIMEOUT_SEC);
 			if (auto res = cli.Get(TRACKAUDIO_PARAM_VERSION)) {
 				if (res->status == 200 && res->body.size()) {
-					auto imsg = std::format("Connected to {} on {}.", res->body, addressTrackAudio);
-					PLOGI << imsg;
-					DisplayInfoMessage(imsg);
+					auto logMsg = std::format("Connected to {} on {}.", res->body, addressTrackAudio);
+					PLOGI << logMsg;
+					DisplayMessageSilent(logMsg);
 				}
 			}
 		}
 		else if (msg->type == ix::WebSocketMessageType::Error) {
-			auto dmsg = std::format("WS ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
+			auto logMsg = std::format("WS ERROR! reason: {}, #retries: {}, wait_time: {}, http_status: {}",
 				msg->errorInfo.reason, (int)msg->errorInfo.retries, msg->errorInfo.wait_time, msg->errorInfo.http_status);
-			PLOGD << dmsg;
-			DisplayDebugMessage(dmsg);
+			PLOGW << logMsg;
+			DisplayMessageDebug(logMsg);
 		}
 		else if (msg->type == ix::WebSocketMessageType::Close) {
-			auto dmsg = std::format("WS CLOSE! code: {}, reason: {}", (int)msg->closeInfo.code, msg->closeInfo.reason);
-			PLOGD << dmsg;
-			DisplayDebugMessage(dmsg);
-			std::string wmsg = "TrackAudio WebSocket disconnected!";
-			PLOGW << wmsg;
-			DisplayWarnMessage(wmsg);
+			auto logMsg = std::format("WS CLOSE! code: {}, reason: {}", (int)msg->closeInfo.code, msg->closeInfo.reason);
+			PLOGI << logMsg;
+			DisplayMessageDebug(logMsg);
+			DisplayMessageUnread("TrackAudio WebSocket disconnected!");
 		}
 	}
 	catch (std::exception const& e) {
@@ -800,12 +796,11 @@ auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	-> EuroScopePlugIn::CRadarScreen*
 {
 	size_t i = vecScreen.size(); // should not be -1
-	auto imsg = std::format("RDF plugin is activated on {}.", sDisplayName);
-	PLOGI << imsg;
-	DisplayInfoMessage(imsg);
+	auto logMsg = std::format("RDF plugin is activated on {}.", sDisplayName);
+	PLOGI << logMsg;
+	DisplayMessageSilent(logMsg);
 	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(i);
 	vecScreen.push_back(screen);
-	PLOGD << "screen created, id " << i;
 	return screen.get();
 }
 
@@ -851,11 +846,11 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 	{
 
 		PLOGE << "Error: " << e.what();
-		DisplayWarnMessage(std::string("Error: ") + e.what());
+		DisplayMessageUnread(std::string("Error: ") + e.what());
 	}
 	catch (...) {
 		PLOGE << UNKNOWN_ERROR_MSG;
-		DisplayWarnMessage(UNKNOWN_ERROR_MSG);
+		DisplayMessageUnread(UNKNOWN_ERROR_MSG);
 	}
 	return false;
 }
