@@ -6,13 +6,6 @@
 #include "stdafx.h"
 #include "CRDFPlugin.h"
 
-typedef struct _asr_to_save {
-	std::string descr;
-	std::string value;
-} asr_to_save;
-
-typedef struct _draw_settings draw_settings;
-
 class CRDFScreen : public EuroScopePlugIn::CRadarScreen, public std::enable_shared_from_this<CRDFScreen>
 {
 private:
@@ -20,7 +13,7 @@ private:
 
 	std::weak_ptr<CRDFPlugin> m_Plugin;
 	int m_ID;
-	std::map<std::string, asr_to_save> newAsrData; // sVariableName -> asr_to_save
+	std::map<std::string, RDFCommon::asr_to_save> newAsrData; // sVariableName -> asr_to_save
 
 	auto PlaneIsVisible(const POINT& p, const RECT& radarArea) -> bool;
 
@@ -29,7 +22,7 @@ public:
 	~CRDFScreen(void);
 
 	bool m_Opened;
-	std::shared_ptr<draw_settings> m_DrawSettings;
+	std::shared_ptr<RDFCommon::draw_settings> m_DrawSettings;
 
 	virtual auto OnAsrContentLoaded(bool Loaded) -> void;
 	virtual auto OnAsrContentToBeSaved(void) -> void;

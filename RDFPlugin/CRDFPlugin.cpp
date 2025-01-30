@@ -19,7 +19,7 @@ CRDFPlugin::CRDFPlugin()
 	auto logPath = dllPath.parent_path() / "RDFPlugin.log";
 	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1000000, 1); // 1 MB of 1 file
 #ifdef _DEBUG
-	auto severity = plog::debug;
+	auto severity = plog::verbose;
 #else
 	auto severity = plog::none;
 #endif // _DEBUG
@@ -90,7 +90,7 @@ CRDFPlugin::CRDFPlugin()
 	socketTrackAudio.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
 
 	std::unique_lock dlock(mtxDrawSettings);
-	pluginDrawSettings = std::make_shared<draw_settings>();
+	pluginDrawSettings = std::make_shared<RDFCommon::draw_settings>();
 	dlock.unlock();
 
 	LoadTrackAudioSettings();
@@ -185,7 +185,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	}
 
 	// update channel
-	chnl_state state;
+	RDFCommon::chnl_state state;
 	state.frequency = msgFrequency;
 	state.rx = receiveX;
 	state.tx = transmitX;
@@ -267,7 +267,7 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 	{
 		std::unique_lock<std::shared_mutex> lock(mtxDrawSettings);
 		// initialize settings
-		std::shared_ptr<draw_settings> targetSetting;
+		std::shared_ptr<RDFCommon::draw_settings> targetSetting;
 		if (screenPtr) { // use ASR
 			targetSetting = (*screenPtr)->m_DrawSettings;
 			PLOGD << "using ASR settings";
@@ -280,12 +280,12 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 		auto cstrRGB = GetSetting(SETTING_RGB);
 		if (cstrRGB.size())
 		{
-			GetRGB(targetSetting->rdfRGB, cstrRGB);
+			RDFCommon::GetRGB(targetSetting->rdfRGB, cstrRGB);
 		}
 		cstrRGB = GetSetting(SETTING_CONCURRENT_RGB);
 		if (cstrRGB.size())
 		{
-			GetRGB(targetSetting->rdfConcurRGB, cstrRGB);
+			RDFCommon::GetRGB(targetSetting->rdfConcurRGB, cstrRGB);
 		}
 		auto cstrRadius = GetSetting(SETTING_CIRCLE_RADIUS);
 		if (cstrRadius.size())
@@ -364,7 +364,7 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 	}
 }
 
-auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
+auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> RDFCommon::draw_position
 {
 	// return radius=0 for no draw
 
@@ -381,6 +381,7 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 		std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
 		radarTarget = RadarTargetSelect(callsign_dump.c_str());
 	}
+	std::shared_lock dlock(mtxDrawSettings);
 	int circleRadius = screenDrawSettings->circleRadius;
 	int circlePrecision = screenDrawSettings->circlePrecision;
 	int circleThreshold = screenDrawSettings->circleThreshold;
@@ -389,6 +390,7 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 	int lowPrecision = screenDrawSettings->lowPrecision;
 	int highPrecision = screenDrawSettings->highPrecision;
 	bool drawController = screenDrawSettings->drawController;
+	dlock.unlock();
 	if (radarTarget.IsValid()) {
 		int alt = radarTarget.GetPosition().GetPressureAltitude();
 		if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
@@ -408,16 +410,16 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 			if (offset > 0) { // add random offset
 				double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
 				double bearing = disBearing(rdGenerator);
-				AddOffset(pos, bearing, distance);
+				RDFCommon::AddOffset(pos, bearing, distance);
 			}
-			return draw_position(pos, radius);
+			return RDFCommon::draw_position(pos, radius);
 		}
 	}
 	else if (drawController && controller.IsValid()) {
 		auto pos = controller.GetPosition();
-		return draw_position(pos, circleRadius);
+		return RDFCommon::draw_position(pos, circleRadius);
 	}
-	return draw_position();
+	return RDFCommon::draw_position();
 }
 
 auto CRDFPlugin::TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void
@@ -466,7 +468,7 @@ auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data)
 		return; // prevent conflict with multiple ES instances. Since AFV hidden window it unique, only disable TrackAudio
 	}
 	std::string callsign = data.value("callsign", "");
-	chnl_state state;
+	RDFCommon::chnl_state state;
 	state.frequency = FrequencyFromHz(data.value("frequency", FREQUENCY_REDUNDANT));
 	state.rx = data.value("rx", false);
 	state.tx = data.value("tx", false);
@@ -493,9 +495,9 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 	}
 	if (frequency) { // find matching frequency that is nearest prim
 		// make a copy of EuroScope data for comparison
-		std::map<std::string, chnl_state> allChannels; // channel name (sorted) -> chnl_state
+		std::map<std::string, RDFCommon::chnl_state> allChannels; // channel name (sorted) -> chnl_state
 		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
-			allChannels[chnl.GetName()] = chnl_state(chnl);
+			allChannels[chnl.GetName()] = RDFCommon::chnl_state(chnl);
 		}
 		// get primary frequency & callsign
 		const auto primChannel = std::find_if(allChannels.begin(), allChannels.end(), [&](const auto& chnl) {
@@ -536,7 +538,7 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 	return EuroScopePlugIn::CGrountToAirChannel();
 }
 
-auto CRDFPlugin::UpdateChannel(const std::optional<std::string>& callsign, const std::optional<chnl_state>& channelState) -> void
+auto CRDFPlugin::UpdateChannel(const std::optional<std::string>& callsign, const std::optional<RDFCommon::chnl_state>& channelState) -> void
 {
 	// note: EuroScope channels allow duplication in channel name, but name <-> frequency pair is unique.
 	if (channelState) {
@@ -578,7 +580,7 @@ auto CRDFPlugin::ToggleChannel(EuroScopePlugIn::CGrountToAirChannel Channel, con
 	}
 }
 
-auto CRDFPlugin::GetDrawStations(void) -> callsign_position
+auto CRDFPlugin::GetDrawStations(void) -> RDFCommon::callsign_position
 {
 	std::shared_lock tlock(mtxTransmission);
 	return curTransmission.empty() && GetAsyncKeyState(VK_MBUTTON) ? preTransmission : curTransmission;
@@ -667,7 +669,7 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 			LoadTrackAudioSettings();
 			{
 				std::unique_lock lock(mtxDrawSettings);
-				pluginDrawSettings.reset(new draw_settings);
+				pluginDrawSettings.reset(new RDFCommon::draw_settings);
 			}
 			LoadDrawingSettings(std::nullopt); // restore plugin settings
 			for (auto& s : vecScreen) { // reload asr settings
@@ -733,19 +735,4 @@ auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, cons
 
 	position.m_Latitude = GEOM_DEG_FROM_RAD(fi2);
 	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
-}
-
-auto GetRGB(COLORREF& color, const std::string& settingValue) -> void
-{
-	PLOGV << settingValue;
-	std::regex rxRGB(R"(^(\d{1,3}):(\d{1,3}):(\d{1,3})$)");
-	std::smatch match;
-	if (std::regex_match(settingValue, match, rxRGB)) {
-		UINT r = std::stoi(match[1].str());
-		UINT g = std::stoi(match[2].str());
-		UINT b = std::stoi(match[3].str());
-		if (r <= 255 && g <= 255 && b <= 255) {
-			color = RGB(r, g, b);
-		}
-	}
 }

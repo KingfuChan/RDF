@@ -18,10 +18,8 @@ CRDFScreen::~CRDFScreen()
 
 auto CRDFScreen::OnAsrContentLoaded(bool Loaded) -> void
 {
-	if (Loaded) { // ASR load finished
-		m_DrawSettings = std::make_shared<draw_settings>();
-		m_Plugin.lock()->LoadDrawingSettings(shared_from_this());
-	}
+	m_DrawSettings = std::make_shared<RDFCommon::draw_settings>();
+	m_Plugin.lock()->LoadDrawingSettings(shared_from_this());
 	PLOGD << "ASR settings loaded, ID: " << m_ID;
 }
 
@@ -41,6 +39,7 @@ auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 
 auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
+	std::unique_lock dlock(m_Plugin.lock()->mtxDrawSettings); // prevent accidental modification
 	if (Phase == EuroScopePlugIn::REFRESH_PHASE_BACK_BITMAP) {
 		PLOGV << "updating vidScreen: " << m_ID;
 		auto ptr = m_Plugin.lock();
@@ -49,13 +48,14 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 	}
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
 
-	std::unique_lock dlock(m_Plugin.lock()->mtxDrawSettings); // prevent accidental modification
-	callsign_position drawPosition = m_Plugin.lock()->GetDrawStations();
+	RDFCommon::callsign_position drawPosition = m_Plugin.lock()->GetDrawStations();
 	if (drawPosition.empty()) {
 		return;
 	}
 
-	draw_settings params = *m_Plugin.lock()->screenDrawSettings;
+	const RDFCommon::draw_settings params = *m_Plugin.lock()->screenDrawSettings;
+	dlock.unlock();
+
 	HGDIOBJ oldBrush = SelectObject(hDC, GetStockObject(HOLLOW_BRUSH));
 	COLORREF penColor = drawPosition.size() > 1 ? params.rdfConcurRGB : params.rdfRGB;
 	HPEN hPen = CreatePen(PS_SOLID, 1, penColor);
@@ -79,13 +79,13 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 				if (params.circleThreshold >= 0) {
 					// using position as boundary xy
 					EuroScopePlugIn::CPosition pl = callsignPos.second.position;
-					AddOffset(pl, 270, callsignPos.second.radius);
+					RDFCommon::AddOffset(pl, 270, callsignPos.second.radius);
 					EuroScopePlugIn::CPosition pt = callsignPos.second.position;
-					AddOffset(pt, 0, callsignPos.second.radius);
+					RDFCommon::AddOffset(pt, 0, callsignPos.second.radius);
 					EuroScopePlugIn::CPosition pr = callsignPos.second.position;
-					AddOffset(pr, 90, callsignPos.second.radius);
+					RDFCommon::AddOffset(pr, 90, callsignPos.second.radius);
 					EuroScopePlugIn::CPosition pb = callsignPos.second.position;
-					AddOffset(pb, 180, callsignPos.second.radius);
+					RDFCommon::AddOffset(pb, 180, callsignPos.second.radius);
 					Ellipse(hDC,
 						ConvertCoordFromPositionToPixel(pl).x,
 						ConvertCoordFromPositionToPixel(pt).y,
@@ -136,7 +136,7 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 			std::transform(bufferMode.begin(), bufferMode.end(), bufferMode.begin(), ::toupper);
 			if (bufferMode == "RGB") {
 				COLORREF prevRGB = m_DrawSettings->rdfRGB;
-				GetRGB(m_DrawSettings->rdfRGB, bufferRGB);
+				RDFCommon::GetRGB(m_DrawSettings->rdfRGB, bufferRGB);
 				if (m_DrawSettings->rdfRGB != prevRGB) {
 					SaveSetting(SETTING_RGB, "RGB", bufferRGB.c_str());
 					return true;
@@ -144,7 +144,7 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 			}
 			else {
 				COLORREF prevRGB = m_DrawSettings->rdfConcurRGB;
-				GetRGB(m_DrawSettings->rdfConcurRGB, bufferRGB);
+				RDFCommon::GetRGB(m_DrawSettings->rdfConcurRGB, bufferRGB);
 				if (m_DrawSettings->rdfConcurRGB != prevRGB) {
 					SaveSetting(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB.c_str());
 					return true;
