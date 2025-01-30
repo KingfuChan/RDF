@@ -88,9 +88,13 @@ CRDFPlugin::CRDFPlugin()
 	socketTrackAudio.setMaxWaitBetweenReconnectionRetries(TRACKAUDIO_HEARTBEAT_SEC * 2000); // ms
 	socketTrackAudio.setPingInterval(TRACKAUDIO_HEARTBEAT_SEC);
 	socketTrackAudio.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
-	setScreen[-1] = std::make_shared<draw_settings>();
+
+	std::unique_lock dlock(mtxDrawSettings);
+	pluginDrawSettings = std::make_shared<draw_settings>();
+	dlock.unlock();
+
 	LoadTrackAudioSettings();
-	LoadDrawingSettings();
+	LoadDrawingSettings(std::nullopt);
 
 	auto logMsg = std::format("Version {} Loaded.", MY_PLUGIN_VERSION);
 	PLOGI << logMsg;
@@ -188,21 +192,6 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 	UpdateChannel(std::nullopt, state);
 }
 
-auto CRDFPlugin::GetRGB(COLORREF& color, const std::string& settingValue) -> void
-{
-	PLOGV << settingValue;
-	std::regex rxRGB(R"(^(\d{1,3}):(\d{1,3}):(\d{1,3})$)");
-	std::smatch match;
-	if (std::regex_match(settingValue, match, rxRGB)) {
-		UINT r = std::stoi(match[1].str());
-		UINT g = std::stoi(match[2].str());
-		UINT b = std::stoi(match[3].str());
-		if (r <= 255 && g <= 255 && b <= 255) {
-			color = RGB(r, g, b);
-		}
-	}
-}
-
 auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 {
 	// get TrackAudio config
@@ -254,23 +243,20 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	}
 }
 
-auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
+auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> screenPtr) -> void
 {
-	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
+	// pass nullopt to load plugin drawing settings, otherwise use ASR settings
 	// Schematic: high altitude/precision optional. low altitude used for filtering regardless of others
 	// threshold < 0 will use circleRadius in pixel, circlePrecision for offset, low/high settings ignored
 	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
 	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
 
-	PLOGI << "loading drawing settings, ID " << screenID;
+	PLOGI << "loading drawing settings, is ASR: " << (bool)screenPtr;
 	auto GetSetting = [&](const auto& varName) -> std::string {
-		if (screenID != -1) {
-			auto& screenPtr = vecScreen[screenID];
-			if (screenPtr->m_Opened) {
-				auto ds = screenPtr->GetDataFromAsr(varName);
-				if (ds != nullptr) {
-					return ds;
-				}
+		if (screenPtr && (*screenPtr)->m_Opened) {
+			auto ds = (*screenPtr)->GetDataFromAsr(varName);
+			if (ds != nullptr) {
+				return ds;
 			}
 		} // fallback onto plugin setting
 		auto d = GetDataFromSettings(varName);
@@ -279,18 +265,16 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 
 	try
 	{
-		std::unique_lock<std::shared_mutex> lock(mtxScreen);
+		std::unique_lock<std::shared_mutex> lock(mtxDrawSettings);
 		// initialize settings
-		std::shared_ptr<draw_settings> targetSetting;;
-		auto itrSetting = setScreen.find(screenID);
-		if (itrSetting != setScreen.end()) { // use existing
-			targetSetting = itrSetting->second;
+		std::shared_ptr<draw_settings> targetSetting;
+		if (screenPtr) { // use ASR
+			targetSetting = (*screenPtr)->m_DrawSettings;
+			PLOGD << "using ASR settings";
 		}
-		else { // create new based on plugin setting
-			PLOGD << "inserting new settings";
-			draw_settings ds = *setScreen[-1];
-			targetSetting = std::make_shared<draw_settings>(ds);
-			setScreen.insert({ screenID, targetSetting });
+		else {
+			targetSetting = pluginDrawSettings;
+			PLOGD << "using plugin settings";
 		}
 
 		auto cstrRGB = GetSetting(SETTING_RGB);
@@ -380,121 +364,6 @@ auto CRDFPlugin::LoadDrawingSettings(const int& screenID) -> void
 	}
 }
 
-auto CRDFPlugin::ProcessDrawingCommand(const std::string& command, const int& screenID) -> bool
-{
-	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
-	// deals with settings available for asr
-	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
-		if (screenID != -1) {
-			vecScreen[screenID]->AddAsrDataToBeSaved(varName, varDescr, val);
-			auto logMsg = std::format("{}: {} (ASR)", varDescr, val);
-			PLOGI << logMsg;
-			DisplayMessageSilent(logMsg);
-		}
-		else {
-			SaveDataToSettings(varName, varDescr, val);
-			auto logMsg = std::format("{}: {}", varDescr, val);
-			PLOGI << logMsg;
-			DisplayMessageSilent(logMsg);
-		}
-		};
-	try
-	{
-		PLOGV << "command: " << command;
-		std::unique_lock lock(mtxScreen);
-		std::shared_ptr<draw_settings> targetSetting = setScreen[screenID];
-		std::smatch match;
-		std::regex rxRGB(R"(^.RDF (RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
-		if (regex_match(command, match, rxRGB)) {
-			auto bufferMode = match[1].str();
-			auto bufferRGB = match[2].str();
-			std::transform(bufferMode.begin(), bufferMode.end(), bufferMode.begin(), ::toupper);
-			if (bufferMode == "RGB") {
-				COLORREF prevRGB = targetSetting->rdfRGB;
-				GetRGB(targetSetting->rdfRGB, bufferRGB);
-				if (targetSetting->rdfRGB != prevRGB) {
-					SaveSetting(SETTING_RGB, "RGB", bufferRGB.c_str());
-					return true;
-				}
-			}
-			else {
-				COLORREF prevRGB = targetSetting->rdfConcurRGB;
-				GetRGB(targetSetting->rdfConcurRGB, bufferRGB);
-				if (targetSetting->rdfConcurRGB != prevRGB) {
-					SaveSetting(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB.c_str());
-					return true;
-				}
-			}
-		}
-		// no need for regex
-		std::string cmd = command;
-		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
-		int bufferRadius;
-		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
-			if (bufferRadius > 0) {
-				targetSetting->circleRadius = bufferRadius;
-				SaveSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(targetSetting->circleRadius).c_str());
-				return true;
-			}
-		}
-		int bufferThreshold;
-		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &bufferThreshold) == 1) {
-			targetSetting->circleThreshold = bufferThreshold;
-			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(targetSetting->circleThreshold).c_str());
-			return true;
-		}
-		int bufferAltitude;
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &bufferAltitude) == 1) {
-			targetSetting->lowAltitude = bufferAltitude;
-			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(targetSetting->lowAltitude).c_str());
-			return true;
-		}
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &bufferAltitude) == 1) {
-			targetSetting->highAltitude = bufferAltitude;
-			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(targetSetting->highAltitude).c_str());
-			return true;
-		}
-		int bufferPrecision;
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
-			if (bufferPrecision >= 0) {
-				targetSetting->lowPrecision = bufferPrecision;
-				SaveSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(targetSetting->lowPrecision).c_str());
-				return true;
-			}
-		}
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
-			if (bufferPrecision >= 0) {
-				targetSetting->highPrecision = bufferPrecision;
-				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(targetSetting->highPrecision).c_str());
-				return true;
-			}
-		}
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
-			if (bufferPrecision >= 0) {
-				targetSetting->circlePrecision = bufferPrecision;
-				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(targetSetting->circlePrecision).c_str());
-				return true;
-			}
-		}
-		int bufferCtrl;
-		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
-			targetSetting->drawController = bufferCtrl;
-			SaveSetting(SETTING_DRAW_CONTROLLERS, "Draw controllers", std::to_string(bufferCtrl).c_str());
-			return true;
-		}
-	}
-	catch (std::exception const& e)
-	{
-		PLOGE << "Error: " << e.what();
-		DisplayMessageUnread(std::string("Error: ") + e.what());
-	}
-	catch (...) {
-		PLOGE << UNKNOWN_ERROR_MSG;
-		DisplayMessageUnread(UNKNOWN_ERROR_MSG);
-	}
-	return false;
-}
-
 auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 {
 	// return radius=0 for no draw
@@ -512,15 +381,14 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> draw_position
 		std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
 		radarTarget = RadarTargetSelect(callsign_dump.c_str());
 	}
-	auto params = GetDrawingParam();
-	int circleRadius = params.circleRadius;
-	int circlePrecision = params.circlePrecision;
-	int circleThreshold = params.circleThreshold;
-	int lowAltitude = params.lowAltitude;
-	int highAltitude = params.highAltitude;
-	int lowPrecision = params.lowPrecision;
-	int highPrecision = params.highPrecision;
-	bool drawController = params.drawController;
+	int circleRadius = screenDrawSettings->circleRadius;
+	int circlePrecision = screenDrawSettings->circlePrecision;
+	int circleThreshold = screenDrawSettings->circleThreshold;
+	int lowAltitude = screenDrawSettings->lowAltitude;
+	int highAltitude = screenDrawSettings->highAltitude;
+	int lowPrecision = screenDrawSettings->lowPrecision;
+	int highPrecision = screenDrawSettings->highPrecision;
+	bool drawController = screenDrawSettings->drawController;
 	if (radarTarget.IsValid()) {
 		int alt = radarTarget.GetPosition().GetPressureAltitude();
 		if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
@@ -710,23 +578,6 @@ auto CRDFPlugin::ToggleChannel(EuroScopePlugIn::CGrountToAirChannel Channel, con
 	}
 }
 
-auto CRDFPlugin::GetDrawingParam(void) -> draw_settings const
-{
-	draw_settings res;
-	try {
-		PLOGV << "ID: " << (int)vidScreen;
-		std::shared_lock<std::shared_mutex> lock(mtxScreen);
-		res = *setScreen.at(vidScreen);
-	}
-	catch (std::exception const& e) {
-		PLOGE << "ID: " << (int)vidScreen << ": " << e.what();
-	}
-	catch (...) {
-		PLOGE << "ID: " << (int)vidScreen;
-	}
-	return res;
-}
-
 auto CRDFPlugin::GetDrawStations(void) -> callsign_position
 {
 	std::shared_lock tlock(mtxTransmission);
@@ -799,7 +650,7 @@ auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 	auto logMsg = std::format("RDF plugin is activated on {}.", sDisplayName);
 	PLOGI << logMsg;
 	DisplayMessageSilent(logMsg);
-	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(i);
+	std::shared_ptr<CRDFScreen> screen = std::make_shared<CRDFScreen>(shared_from_this(), i);
 	vecScreen.push_back(screen);
 	return screen.get();
 }
@@ -815,14 +666,13 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 		if (std::regex_match(cmd, match, rxReload)) {
 			LoadTrackAudioSettings();
 			{
-				std::unique_lock lock(mtxScreen); // cautious for overlapped lock
-				setScreen.clear();
-				setScreen[-1] = std::make_shared<draw_settings>(); // initialize default settings
+				std::unique_lock lock(mtxDrawSettings);
+				pluginDrawSettings.reset(new draw_settings);
 			}
-			LoadDrawingSettings(-1); // restore plugin settings
+			LoadDrawingSettings(std::nullopt); // restore plugin settings
 			for (auto& s : vecScreen) { // reload asr settings
 				s->newAsrData.clear();
-				LoadDrawingSettings(s->m_ID);
+				LoadDrawingSettings(s);
 			}
 			return true;
 		}
@@ -840,7 +690,6 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 			PLOGD << "kGetStationStates is sent via WS";
 			return true;
 		}
-		return ProcessDrawingCommand(sCommandLine);
 	}
 	catch (std::exception const& e)
 	{
@@ -884,4 +733,19 @@ auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, cons
 
 	position.m_Latitude = GEOM_DEG_FROM_RAD(fi2);
 	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
+}
+
+auto GetRGB(COLORREF& color, const std::string& settingValue) -> void
+{
+	PLOGV << settingValue;
+	std::regex rxRGB(R"(^(\d{1,3}):(\d{1,3}):(\d{1,3})$)");
+	std::smatch match;
+	if (std::regex_match(settingValue, match, rxRGB)) {
+		UINT r = std::stoi(match[1].str());
+		UINT g = std::stoi(match[2].str());
+		UINT b = std::stoi(match[3].str());
+		if (r <= 255 && g <= 255 && b <= 255) {
+			color = RGB(r, g, b);
+		}
+	}
 }

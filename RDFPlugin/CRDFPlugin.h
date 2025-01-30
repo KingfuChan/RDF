@@ -1,5 +1,8 @@
 #pragma once
 
+#ifndef CRDFPLUGIN_H
+#define CRDFPLUGIN_H
+
 #include "stdafx.h"
 #include "HiddenWindow.h"
 #include "CRDFScreen.h"
@@ -51,6 +54,9 @@ inline static auto FrequencyIsSame(const auto& freq1, const auto& freq2) -> bool
 	return abs(freq1 - freq2) <= 10;
 }
 
+// General functions
+auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
+
 // Draw position
 typedef struct _draw_position {
 	EuroScopePlugIn::CPosition position;
@@ -93,7 +99,7 @@ typedef struct _draw_settings {
 		highAltitude = 0; // Default: 0 (feet)
 		highPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
 		drawController = false;
-	};
+	}
 } draw_settings;
 
 // Frequency & channel state
@@ -123,17 +129,16 @@ typedef struct _es_chnl_state {
 	}
 } chnl_state;
 
-class CRDFPlugin : public EuroScopePlugIn::CPlugIn
+class CRDFPlugin : public EuroScopePlugIn::CPlugIn, public std::enable_shared_from_this<CRDFPlugin>
 {
 private:
 	friend class CRDFScreen;
 
 	// screen controls and drawing params
+	std::shared_mutex mtxDrawSettings;
 	std::vector<std::shared_ptr<CRDFScreen>> vecScreen; // index is screen ID (incremental int)
-	std::map<int, std::shared_ptr<draw_settings>> setScreen; // screeID -> settings, ID=-1 used as plugin setting
-	std::atomic_int vidScreen;
-	std::shared_mutex mtxScreen;
-	auto GetDrawingParam(void) -> draw_settings const;
+	std::shared_ptr<draw_settings> pluginDrawSettings; // only reset by command
+	std::shared_ptr<draw_settings> screenDrawSettings; // updated by CRDFScreen
 
 	// drawing records
 	std::shared_mutex mtxTransmission;
@@ -175,10 +180,8 @@ private:
 	};
 
 	// settings related functions
-	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
 	auto LoadTrackAudioSettings(void) -> void;
-	auto LoadDrawingSettings(const int& screenID = -1) -> void;
-	auto ProcessDrawingCommand(const std::string& command, const int& screenID = -1) -> bool;
+	auto LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> screenPtr) -> void;
 
 	// functional things 
 	auto GenerateDrawPosition(std::string callsign) -> draw_position;
@@ -194,7 +197,7 @@ private:
 #ifdef _DEBUG
 		DisplayUserMessage("RDF-DEBUG", "", msg.c_str(), true, true, true, false, false);
 #endif // _DEBUG
-	};
+	}
 	inline auto DisplayMessageSilent(const std::string& msg) -> void {
 		DisplayUserMessage("Message", "RDF Plugin", msg.c_str(), false, false, false, false, false);
 	}
@@ -212,3 +215,5 @@ public:
 	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;
 	virtual auto OnGetTagItem(EuroScopePlugIn::CFlightPlan FlightPlan, EuroScopePlugIn::CRadarTarget RadarTarget, int ItemCode, int TagData, char sItemString[16], int* pColorCode, COLORREF* pRGB, double* pFontSize) -> void;
 };
+
+#endif // !CRDFPLUGIN_H

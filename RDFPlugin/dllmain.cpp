@@ -4,16 +4,17 @@
 #include "CRDFPlugin.h"
 
 // Interface for EuroScope plugin loading
-CRDFPlugin* pMyPlugIn = nullptr;
+std::shared_ptr<CRDFPlugin> pMyPlugIn;
 
 void __declspec (dllexport)
 EuroScopePlugInInit(EuroScopePlugIn::CPlugIn** ppPlugInInstance)
 {
-	*ppPlugInInstance = pMyPlugIn = new CRDFPlugin;
+	pMyPlugIn = std::make_shared<CRDFPlugin>();
+	*ppPlugInInstance = pMyPlugIn.get();
 }
 
 void __declspec (dllexport)
 EuroScopePlugInExit(void)
 {
-	delete pMyPlugIn;
+	pMyPlugIn.reset();
 }

@@ -3,8 +3,9 @@
 #include "stdafx.h"
 #include "CRDFScreen.h"
 
-CRDFScreen::CRDFScreen(const int& ID)
+CRDFScreen::CRDFScreen(std::weak_ptr<CRDFPlugin> plugin, const int& ID)
 {
+	m_Plugin = plugin;
 	m_ID = ID;
 	m_Opened = true;
 	PLOGD << "created, ID: " << m_ID;
@@ -18,9 +19,10 @@ CRDFScreen::~CRDFScreen()
 auto CRDFScreen::OnAsrContentLoaded(bool Loaded) -> void
 {
 	if (Loaded) { // ASR load finished
-		GetRDFPlugin()->LoadDrawingSettings(m_ID);
+		m_DrawSettings = std::make_shared<draw_settings>();
+		m_Plugin.lock()->LoadDrawingSettings(shared_from_this());
 	}
-	PLOGD << "ID: " << m_ID;
+	PLOGD << "ASR settings loaded, ID: " << m_ID;
 }
 
 auto CRDFScreen::OnAsrContentToBeSaved(void) -> void
@@ -41,17 +43,19 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
 	if (Phase == EuroScopePlugIn::REFRESH_PHASE_BACK_BITMAP) {
 		PLOGV << "updating vidScreen: " << m_ID;
-		GetRDFPlugin()->vidScreen = m_ID;
+		auto ptr = m_Plugin.lock();
+		ptr->screenDrawSettings = m_DrawSettings;
 		return;
 	}
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
 
-	callsign_position drawPosition = GetRDFPlugin()->GetDrawStations();
+	std::unique_lock dlock(m_Plugin.lock()->mtxDrawSettings); // prevent accidental modification
+	callsign_position drawPosition = m_Plugin.lock()->GetDrawStations();
 	if (drawPosition.empty()) {
 		return;
 	}
 
-	draw_settings params = GetRDFPlugin()->GetDrawingParam();
+	draw_settings params = *m_Plugin.lock()->screenDrawSettings;
 	HGDIOBJ oldBrush = SelectObject(hDC, GetStockObject(HOLLOW_BRUSH));
 	COLORREF penColor = drawPosition.size() > 1 ? params.rdfConcurRGB : params.rdfRGB;
 	HPEN hPen = CreatePen(PS_SOLID, 1, penColor);
@@ -110,20 +114,113 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 
 auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 {
-	return GetRDFPlugin()->ProcessDrawingCommand(sCommandLine, m_ID);
-}
 
-auto CRDFScreen::GetRDFPlugin(void) -> CRDFPlugin*
-{
-	return static_cast<CRDFPlugin*>(GetPlugIn());
+	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
+	// deals with settings available for asr
+	auto pluginPtr = m_Plugin.lock();
+	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
+		newAsrData[varName] = { varDescr, val };
+		auto logMsg = std::format("Add ASR configurations to be saved, {}: {}", varDescr, val);
+		PLOGI << logMsg;
+		pluginPtr->DisplayMessageSilent(logMsg);
+		};
+	try
+	{
+		std::string command = sCommandLine;
+		PLOGV << "command: " << command;
+		std::smatch match;
+		std::regex rxRGB(R"(^.RDF (RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
+		if (regex_match(command, match, rxRGB)) {
+			auto bufferMode = match[1].str();
+			auto bufferRGB = match[2].str();
+			std::transform(bufferMode.begin(), bufferMode.end(), bufferMode.begin(), ::toupper);
+			if (bufferMode == "RGB") {
+				COLORREF prevRGB = m_DrawSettings->rdfRGB;
+				GetRGB(m_DrawSettings->rdfRGB, bufferRGB);
+				if (m_DrawSettings->rdfRGB != prevRGB) {
+					SaveSetting(SETTING_RGB, "RGB", bufferRGB.c_str());
+					return true;
+				}
+			}
+			else {
+				COLORREF prevRGB = m_DrawSettings->rdfConcurRGB;
+				GetRGB(m_DrawSettings->rdfConcurRGB, bufferRGB);
+				if (m_DrawSettings->rdfConcurRGB != prevRGB) {
+					SaveSetting(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB.c_str());
+					return true;
+				}
+			}
+		}
+		// no need for regex
+		std::string cmd = command;
+		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
+		int bufferRadius;
+		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
+			if (bufferRadius > 0) {
+				m_DrawSettings->circleRadius = bufferRadius;
+				SaveSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(m_DrawSettings->circleRadius).c_str());
+				return true;
+			}
+		}
+		int bufferThreshold;
+		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &bufferThreshold) == 1) {
+			m_DrawSettings->circleThreshold = bufferThreshold;
+			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(m_DrawSettings->circleThreshold).c_str());
+			return true;
+		}
+		int bufferAltitude;
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &bufferAltitude) == 1) {
+			m_DrawSettings->lowAltitude = bufferAltitude;
+			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(m_DrawSettings->lowAltitude).c_str());
+			return true;
+		}
+		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &bufferAltitude) == 1) {
+			m_DrawSettings->highAltitude = bufferAltitude;
+			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(m_DrawSettings->highAltitude).c_str());
+			return true;
+		}
+		int bufferPrecision;
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
+			if (bufferPrecision >= 0) {
+				m_DrawSettings->lowPrecision = bufferPrecision;
+				SaveSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(m_DrawSettings->lowPrecision).c_str());
+				return true;
+			}
+		}
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
+			if (bufferPrecision >= 0) {
+				m_DrawSettings->highPrecision = bufferPrecision;
+				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(m_DrawSettings->highPrecision).c_str());
+				return true;
+			}
+		}
+		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
+			if (bufferPrecision >= 0) {
+				m_DrawSettings->circlePrecision = bufferPrecision;
+				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(m_DrawSettings->circlePrecision).c_str());
+				return true;
+			}
+		}
+		int bufferCtrl;
+		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
+			m_DrawSettings->drawController = bufferCtrl;
+			SaveSetting(SETTING_DRAW_CONTROLLERS, "Draw controllers", std::to_string(bufferCtrl).c_str());
+			return true;
+		}
+	}
+	catch (std::exception const& e)
+	{
+		PLOGE << "Error: " << e.what();
+		pluginPtr->DisplayMessageUnread(std::string("Error: ") + e.what());
+	}
+	catch (...) {
+		PLOGE << UNKNOWN_ERROR_MSG;
+		pluginPtr->DisplayMessageUnread(UNKNOWN_ERROR_MSG);
+	}
+	return false;
 }
 
 auto CRDFScreen::PlaneIsVisible(const POINT& p, const RECT& radarArea) -> bool
 {
 	return p.x >= radarArea.left && p.x <= radarArea.right && p.y >= radarArea.top && p.y <= radarArea.bottom;
-}
-
-auto CRDFScreen::AddAsrDataToBeSaved(const std::string& name, const std::string& description, const std::string& value) -> void
-{
-	newAsrData[name] = { description, value };
 }
