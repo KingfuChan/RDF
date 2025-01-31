@@ -673,7 +673,6 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 			}
 			LoadDrawingSettings(std::nullopt); // restore plugin settings
 			for (auto& s : vecScreen) { // reload asr settings
-				s->newAsrData.clear();
 				LoadDrawingSettings(s);
 			}
 			return true;

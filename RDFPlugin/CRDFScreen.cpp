@@ -23,14 +23,6 @@ auto CRDFScreen::OnAsrContentLoaded(bool Loaded) -> void
 	PLOGD << "ASR settings loaded, ID: " << m_ID;
 }
 
-auto CRDFScreen::OnAsrContentToBeSaved(void) -> void
-{
-	for (auto& s : newAsrData) {
-		PLOGD << "saving ASR content: " << s.first << " - " << s.second.value;
-		SaveDataToAsr(s.first.c_str(), s.second.descr.c_str(), s.second.value.c_str());
-	}
-}
-
 auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 {
 	m_Opened = false; // should not delete this to avoid crash
@@ -119,8 +111,8 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 	// deals with settings available for asr
 	auto pluginPtr = m_Plugin.lock();
 	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
-		newAsrData[varName] = { varDescr, val };
-		auto logMsg = std::format("Add ASR configurations to be saved, {}: {}", varDescr, val);
+		SaveDataToAsr(varName, varDescr, val);
+		auto logMsg = std::format("Add ASR configurations to be saved, {}: {}", varName, val);
 		PLOGI << logMsg;
 		pluginPtr->DisplayMessageSilent(logMsg);
 		};

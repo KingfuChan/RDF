@@ -97,11 +97,6 @@ namespace RDFCommon {
 		}
 	} draw_settings;
 
-	typedef struct _asr_to_save {
-		std::string descr;
-		std::string value;
-	} asr_to_save;
-
 	// Frequency & channel state
 	typedef struct _freq_state {
 		std::optional<std::string> callsign; // can be empty

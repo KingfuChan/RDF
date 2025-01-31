@@ -13,7 +13,6 @@ private:
 
 	std::weak_ptr<CRDFPlugin> m_Plugin;
 	int m_ID;
-	std::map<std::string, RDFCommon::asr_to_save> newAsrData; // sVariableName -> asr_to_save
 
 	auto PlaneIsVisible(const POINT& p, const RECT& radarArea) -> bool;
 
@@ -25,7 +24,6 @@ public:
 	std::shared_ptr<RDFCommon::draw_settings> m_DrawSettings;
 
 	virtual auto OnAsrContentLoaded(bool Loaded) -> void;
-	virtual auto OnAsrContentToBeSaved(void) -> void;
 	virtual auto OnAsrContentToBeClosed(void) -> void;
 	virtual auto OnRefresh(HDC hDC, int Phase) -> void;
 	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;
