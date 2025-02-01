@@ -16,8 +16,7 @@ private:
 	// screen controls and drawing params
 	std::shared_mutex mtxDrawSettings;
 	std::vector<std::shared_ptr<CRDFScreen>> vecScreen; // index is screen ID (incremental int)
-	std::shared_ptr<RDFCommon::draw_settings> pluginDrawSettings; // only reset by command
-	std::shared_ptr<RDFCommon::draw_settings> screenDrawSettings; // updated by CRDFScreen
+	std::shared_ptr<RDFCommon::draw_settings> currentDrawSettings;
 
 	// drawing records
 	std::shared_mutex mtxTransmission;

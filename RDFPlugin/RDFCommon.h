@@ -49,7 +49,7 @@ inline static auto FrequencyIsSame(const auto& freq1, const auto& freq2) -> bool
 namespace RDFCommon {
 
 	// General functions
-	auto GetRGB(COLORREF& color, const std::string& settingValue) -> void;
+	auto GetRGB(COLORREF& color, const std::string& settingValue) -> bool; // return true if success
 	auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void;
 
 	// Draw position

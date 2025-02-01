@@ -90,7 +90,7 @@ CRDFPlugin::CRDFPlugin()
 	socketTrackAudio.setOnMessageCallback(std::bind_front(&CRDFPlugin::TrackAudioMessageHandler, this));
 
 	std::unique_lock dlock(mtxDrawSettings);
-	pluginDrawSettings = std::make_shared<RDFCommon::draw_settings>();
+	currentDrawSettings = std::make_shared<RDFCommon::draw_settings>();
 	dlock.unlock();
 
 	LoadTrackAudioSettings();
@@ -243,9 +243,10 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	}
 }
 
-auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> screenPtr) -> void
+auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> screenPtr) ->  void
 {
 	// pass nullopt to load plugin drawing settings, otherwise use ASR settings
+	// fallback logig: ASR -> plugin -> default
 	// Schematic: high altitude/precision optional. low altitude used for filtering regardless of others
 	// threshold < 0 will use circleRadius in pixel, circlePrecision for offset, low/high settings ignored
 	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
@@ -256,74 +257,71 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 		if (screenPtr && (*screenPtr)->m_Opened) {
 			auto ds = (*screenPtr)->GetDataFromAsr(varName);
 			if (ds != nullptr) {
+				PLOGV << varName << ": ASR";
 				return ds;
 			}
 		} // fallback onto plugin setting
 		auto d = GetDataFromSettings(varName);
-		return d == nullptr ? "" : d;
+		if (d != nullptr) {
+			PLOGV << varName << ": plugin";
+			return d;
+		}
+		PLOGV << varName << ": default";
+		return "";
 		};
 
 	try
 	{
 		std::unique_lock<std::shared_mutex> lock(mtxDrawSettings);
 		// initialize settings
-		std::shared_ptr<RDFCommon::draw_settings> targetSetting;
-		if (screenPtr) { // use ASR
-			targetSetting = (*screenPtr)->m_DrawSettings;
-			PLOGD << "using ASR settings";
-		}
-		else {
-			targetSetting = pluginDrawSettings;
-			PLOGD << "using plugin settings";
-		}
-
+		currentDrawSettings.reset(new RDFCommon::draw_settings());
 		auto cstrRGB = GetSetting(SETTING_RGB);
 		if (cstrRGB.size())
 		{
-			RDFCommon::GetRGB(targetSetting->rdfRGB, cstrRGB);
+			RDFCommon::GetRGB(currentDrawSettings->rdfRGB, cstrRGB);
 		}
 		cstrRGB = GetSetting(SETTING_CONCURRENT_RGB);
 		if (cstrRGB.size())
 		{
-			RDFCommon::GetRGB(targetSetting->rdfConcurRGB, cstrRGB);
+			RDFCommon::GetRGB(currentDrawSettings->rdfConcurRGB, cstrRGB);
 		}
 		auto cstrRadius = GetSetting(SETTING_CIRCLE_RADIUS);
 		if (cstrRadius.size())
 		{
 			int parsedRadius = std::stoi(cstrRadius);
 			if (parsedRadius > 0) {
-				targetSetting->circleRadius = parsedRadius;
-				PLOGV << SETTING_CIRCLE_RADIUS << ": " << targetSetting->circleRadius;
+				currentDrawSettings->circleRadius = parsedRadius;
+				PLOGV << SETTING_CIRCLE_RADIUS << ": " << currentDrawSettings->circleRadius;
 			}
 		}
 		auto cstrThreshold = GetSetting(SETTING_THRESHOLD);
 		if (cstrThreshold.size())
 		{
-			targetSetting->circleThreshold = std::stoi(cstrThreshold);
-			PLOGV << SETTING_THRESHOLD << ": " << targetSetting->circleThreshold;
+			currentDrawSettings->circleThreshold = std::stoi(cstrThreshold);
+			PLOGV << SETTING_THRESHOLD << ": " << currentDrawSettings->circleThreshold;
 		}
 		auto cstrPrecision = GetSetting(SETTING_PRECISION);
 		if (cstrPrecision.size())
 		{
 			int parsedPrecision = std::stoi(cstrPrecision);
 			if (parsedPrecision >= 0) {
-				targetSetting->circlePrecision = parsedPrecision;
-				PLOGV << SETTING_PRECISION << ": " << targetSetting->circlePrecision;
+				currentDrawSettings->circlePrecision = parsedPrecision;
+				PLOGV << SETTING_PRECISION << ": " << currentDrawSettings->circlePrecision;
 			}
 		}
 		auto cstrLowAlt = GetSetting(SETTING_LOW_ALTITUDE);
 		if (cstrLowAlt.size())
 		{
-			targetSetting->lowAltitude = std::stoi(cstrLowAlt);
-			PLOGV << SETTING_LOW_ALTITUDE << ": " << targetSetting->lowAltitude;
+			currentDrawSettings->lowAltitude = std::stoi(cstrLowAlt);
+			PLOGV << SETTING_LOW_ALTITUDE << ": " << currentDrawSettings->lowAltitude;
 		}
 		auto cstrHighAlt = GetSetting(SETTING_HIGH_ALTITUDE);
 		if (cstrHighAlt.size())
 		{
 			int parsedAlt = std::stoi(cstrHighAlt);
 			if (parsedAlt > 0) {
-				targetSetting->highAltitude = parsedAlt;
-				PLOGV << SETTING_HIGH_ALTITUDE << ": " << targetSetting->highAltitude;
+				currentDrawSettings->highAltitude = parsedAlt;
+				PLOGV << SETTING_HIGH_ALTITUDE << ": " << currentDrawSettings->highAltitude;
 			}
 		}
 		auto cstrLowPrecision = GetSetting(SETTING_LOW_PRECISION);
@@ -331,8 +329,8 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 		{
 			int parsedPrecision = std::stoi(cstrLowPrecision);
 			if (parsedPrecision >= 0) {
-				targetSetting->lowPrecision = parsedPrecision;
-				PLOGV << SETTING_LOW_PRECISION << ": " << targetSetting->lowPrecision;
+				currentDrawSettings->lowPrecision = parsedPrecision;
+				PLOGV << SETTING_LOW_PRECISION << ": " << currentDrawSettings->lowPrecision;
 			}
 		}
 		auto cstrHighPrecision = GetSetting(SETTING_HIGH_PRECISION);
@@ -340,15 +338,15 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 		{
 			int parsedPrecision = std::stoi(cstrHighPrecision);
 			if (parsedPrecision >= 0) {
-				targetSetting->highPrecision = parsedPrecision;
-				PLOGV << SETTING_HIGH_PRECISION << ": " << targetSetting->highPrecision;
+				currentDrawSettings->highPrecision = parsedPrecision;
+				PLOGV << SETTING_HIGH_PRECISION << ": " << currentDrawSettings->highPrecision;
 			}
 		}
 		auto cstrController = GetSetting(SETTING_DRAW_CONTROLLERS);
 		if (cstrController.size())
 		{
-			targetSetting->drawController = (bool)std::stoi(cstrController);
-			PLOGV << SETTING_DRAW_CONTROLLERS << ": " << targetSetting->drawController;
+			currentDrawSettings->drawController = (bool)std::stoi(cstrController);
+			PLOGV << SETTING_DRAW_CONTROLLERS << ": " << currentDrawSettings->drawController;
 		}
 		PLOGD << "drawing settings loaded";
 	}
@@ -382,14 +380,14 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> RDFCommon::draw_p
 		radarTarget = RadarTargetSelect(callsign_dump.c_str());
 	}
 	std::shared_lock dlock(mtxDrawSettings);
-	int circleRadius = screenDrawSettings->circleRadius;
-	int circlePrecision = screenDrawSettings->circlePrecision;
-	int circleThreshold = screenDrawSettings->circleThreshold;
-	int lowAltitude = screenDrawSettings->lowAltitude;
-	int highAltitude = screenDrawSettings->highAltitude;
-	int lowPrecision = screenDrawSettings->lowPrecision;
-	int highPrecision = screenDrawSettings->highPrecision;
-	bool drawController = screenDrawSettings->drawController;
+	int circleRadius = currentDrawSettings->circleRadius;
+	int circlePrecision = currentDrawSettings->circlePrecision;
+	int circleThreshold = currentDrawSettings->circleThreshold;
+	int lowAltitude = currentDrawSettings->lowAltitude;
+	int highAltitude = currentDrawSettings->highAltitude;
+	int lowPrecision = currentDrawSettings->lowPrecision;
+	int highPrecision = currentDrawSettings->highPrecision;
+	bool drawController = currentDrawSettings->drawController;
 	dlock.unlock();
 	if (radarTarget.IsValid()) {
 		int alt = radarTarget.GetPosition().GetPressureAltitude();
@@ -667,14 +665,6 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 		std::regex rxReload(R"(^.RDF RELOAD$)", std::regex_constants::icase);
 		if (std::regex_match(cmd, match, rxReload)) {
 			LoadTrackAudioSettings();
-			{
-				std::unique_lock lock(mtxDrawSettings);
-				pluginDrawSettings.reset(new RDFCommon::draw_settings);
-			}
-			LoadDrawingSettings(std::nullopt); // restore plugin settings
-			for (auto& s : vecScreen) { // reload asr settings
-				LoadDrawingSettings(s);
-			}
 			return true;
 		}
 		std::regex rxRefresh(R"(^.RDF REFRESH$)", std::regex_constants::icase);

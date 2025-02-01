@@ -16,13 +16,6 @@ CRDFScreen::~CRDFScreen()
 	PLOGD << "screen destroyed, ID: " << m_ID;
 }
 
-auto CRDFScreen::OnAsrContentLoaded(bool Loaded) -> void
-{
-	m_DrawSettings = std::make_shared<RDFCommon::draw_settings>();
-	m_Plugin.lock()->LoadDrawingSettings(shared_from_this());
-	PLOGD << "ASR settings loaded, ID: " << m_ID;
-}
-
 auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 {
 	m_Opened = false; // should not delete this to avoid crash
@@ -31,11 +24,10 @@ auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 
 auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
-	std::unique_lock dlock(m_Plugin.lock()->mtxDrawSettings); // prevent accidental modification
+	std::shared_lock dlock(m_Plugin.lock()->mtxDrawSettings); // prevent accidental modification
 	if (Phase == EuroScopePlugIn::REFRESH_PHASE_BACK_BITMAP) {
-		PLOGV << "updating vidScreen: " << m_ID;
-		auto ptr = m_Plugin.lock();
-		ptr->screenDrawSettings = m_DrawSettings;
+		PLOGV << "updating screen, ID: " << m_ID;
+		m_Plugin.lock()->LoadDrawingSettings(shared_from_this());
 		return;
 	}
 	if (Phase != EuroScopePlugIn::REFRESH_PHASE_AFTER_TAGS) return;
@@ -45,7 +37,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 		return;
 	}
 
-	const RDFCommon::draw_settings params = *m_Plugin.lock()->screenDrawSettings;
+	const RDFCommon::draw_settings params = *m_Plugin.lock()->currentDrawSettings;
 	dlock.unlock();
 
 	HGDIOBJ oldBrush = SelectObject(hDC, GetStockObject(HOLLOW_BRUSH));
@@ -126,21 +118,15 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 			auto bufferMode = match[1].str();
 			auto bufferRGB = match[2].str();
 			std::transform(bufferMode.begin(), bufferMode.end(), bufferMode.begin(), ::toupper);
-			if (bufferMode == "RGB") {
-				COLORREF prevRGB = m_DrawSettings->rdfRGB;
-				RDFCommon::GetRGB(m_DrawSettings->rdfRGB, bufferRGB);
-				if (m_DrawSettings->rdfRGB != prevRGB) {
+			COLORREF _rgb = RGB(0, 0, 0);
+			if (RDFCommon::GetRGB(_rgb, bufferRGB)) {
+				if (bufferMode == "RGB") {
 					SaveSetting(SETTING_RGB, "RGB", bufferRGB.c_str());
-					return true;
 				}
-			}
-			else {
-				COLORREF prevRGB = m_DrawSettings->rdfConcurRGB;
-				RDFCommon::GetRGB(m_DrawSettings->rdfConcurRGB, bufferRGB);
-				if (m_DrawSettings->rdfConcurRGB != prevRGB) {
+				else {
 					SaveSetting(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB.c_str());
-					return true;
 				}
+				return true;
 			}
 		}
 		// no need for regex
@@ -149,53 +135,45 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 		int bufferRadius;
 		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
 			if (bufferRadius > 0) {
-				m_DrawSettings->circleRadius = bufferRadius;
-				SaveSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(m_DrawSettings->circleRadius).c_str());
+				SaveSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(bufferRadius).c_str());
 				return true;
 			}
 		}
 		int bufferThreshold;
 		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &bufferThreshold) == 1) {
-			m_DrawSettings->circleThreshold = bufferThreshold;
-			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(m_DrawSettings->circleThreshold).c_str());
+			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(bufferThreshold).c_str());
 			return true;
 		}
 		int bufferAltitude;
 		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &bufferAltitude) == 1) {
-			m_DrawSettings->lowAltitude = bufferAltitude;
-			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(m_DrawSettings->lowAltitude).c_str());
+			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(bufferAltitude).c_str());
 			return true;
 		}
 		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &bufferAltitude) == 1) {
-			m_DrawSettings->highAltitude = bufferAltitude;
-			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(m_DrawSettings->highAltitude).c_str());
+			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(bufferAltitude).c_str());
 			return true;
 		}
 		int bufferPrecision;
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				m_DrawSettings->lowPrecision = bufferPrecision;
-				SaveSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(m_DrawSettings->lowPrecision).c_str());
+				SaveSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(bufferPrecision).c_str());
 				return true;
 			}
 		}
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				m_DrawSettings->highPrecision = bufferPrecision;
-				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(m_DrawSettings->highPrecision).c_str());
+				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(bufferPrecision).c_str());
 				return true;
 			}
 		}
 		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				m_DrawSettings->circlePrecision = bufferPrecision;
-				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(m_DrawSettings->circlePrecision).c_str());
+				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(bufferPrecision).c_str());
 				return true;
 			}
 		}
 		int bufferCtrl;
 		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
-			m_DrawSettings->drawController = bufferCtrl;
 			SaveSetting(SETTING_DRAW_CONTROLLERS, "Draw controllers", std::to_string(bufferCtrl).c_str());
 			return true;
 		}

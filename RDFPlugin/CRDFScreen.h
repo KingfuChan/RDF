@@ -21,9 +21,7 @@ public:
 	~CRDFScreen(void);
 
 	bool m_Opened;
-	std::shared_ptr<RDFCommon::draw_settings> m_DrawSettings;
 
-	virtual auto OnAsrContentLoaded(bool Loaded) -> void;
 	virtual auto OnAsrContentToBeClosed(void) -> void;
 	virtual auto OnRefresh(HDC hDC, int Phase) -> void;
 	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;

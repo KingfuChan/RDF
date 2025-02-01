@@ -3,19 +3,26 @@
 #include "stdafx.h"
 #include "RDFCommon.h"
 
-auto RDFCommon::GetRGB(COLORREF& color, const std::string& settingValue) -> void
+auto RDFCommon::GetRGB(COLORREF& color, const std::string& settingValue) -> bool
 {
-	PLOGV << settingValue;
-	std::regex rxRGB(R"(^(\d{1,3}):(\d{1,3}):(\d{1,3})$)");
-	std::smatch match;
-	if (std::regex_match(settingValue, match, rxRGB)) {
-		UINT r = std::stoi(match[1].str());
-		UINT g = std::stoi(match[2].str());
-		UINT b = std::stoi(match[3].str());
-		if (r <= 255 && g <= 255 && b <= 255) {
-			color = RGB(r, g, b);
+	try {
+		PLOGV << settingValue;
+		std::regex rxRGB(R"(^(\d{1,3}):(\d{1,3}):(\d{1,3})$)");
+		std::smatch match;
+		if (std::regex_match(settingValue, match, rxRGB)) {
+			UINT r = std::stoi(match[1].str());
+			UINT g = std::stoi(match[2].str());
+			UINT b = std::stoi(match[3].str());
+			if (r <= 255 && g <= 255 && b <= 255) {
+				color = RGB(r, g, b);
+				return true;
+			}
 		}
 	}
+	catch (...) {
+		PLOGE << "invalid RGB value";
+	}
+	return false;
 }
 
 auto RDFCommon::AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void
