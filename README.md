@@ -2,7 +2,9 @@
 
 Radio Direction Finder plugin for [EuroScope](https://www.euroscope.hu). Still actively maintained.
 
-## *TrackAudio* & *Audio for VATSIM Standalone Client* Support
+## Features
+
+### *TrackAudio* & *Audio for VATSIM Standalone Client* Support
 
 Supports *Audio for VATSIM standalone client* through hidden window messaging. This has been used since the birth of AFV.
 
@@ -11,52 +13,107 @@ Supports *Audio for VATSIM standalone client* through hidden window messaging. T
 > [!IMPORTANT]
 > Since RDFPlugin version 1.4.1+, *TrackAudio* [1.3.0 Beta 5](https://github.com/pierr3/TrackAudio/releases/tag/1.3.0-beta.5) is required due to changes in *TrackAudio* SDK.
 
-## More Customizations
+### More Customizations
 
 + (Existing feature) RGB settings for circle or line, and different color for concurrent transmission.
 + Random radio direction offsets to simulate measuring errors in real life.
 + Offers variable precision at different altitudes.
 + Hide radio-direction-finders for low altitude aircrafts.
++ Flexible use of lines instead of circles.
 + Draw controllers as desired.
-+ ASR-specific drawing parameters including colors, precision and filtering.
++ Per-ASR drawing configurations.
 + Tag item type **RDF state** to indicate previously transmitting aircraft.
 
-## Integrate afv-bridge
+### Integrate afv-bridge
 
 Do the same work as [*afv-euroscope-bridge*](https://github.com/AndyTWF/afv-euroscope-bridge). Supports both *TrackAudio* and *Audio for VATSIM standalone client*. When a new radio station is set up for RX/TX, RDF detects its status and toggles respective channels in EuroScope.
 
 ## Configurations
 
-There are two ways to modify the plugin settings - by settings file and by commandline functions.
+> [!NOTE]
+> All command line functions are case-insensitive.
 
-This table shows all configurable items.
+### General
 
-| Entry Name                | Command Line Keyword | Range       | Default Value   |
-| ------------------------- | -------------------- | ----------- | --------------- |
-| LogLevel                  |                      |             | None            |
-| Endpoint                  |                      |             | 127.0.0.1:49080 |
-| TrackAudioMode            |                      | -1, 0, 1    | 1               |
-| RGB                       | RGB                  | RRR:GGG:BBB | 255:255:255     |
-| ConcurrentTransmissionRGB | CTRGB                | RRR:GGG:BBB | 255:0:0         |
-| Radius                    | RADIUS               | (0, +inf)   | 20              |
-| Threshold                 | THRESHOLD            |             | -1              |
-| Precision                 | PRECISION            | [0, +inf)   | 0               |
-| LowAltitude               | ALTITUDE L_____      |             | 0               |
-| HighAltitude              | ALTITUDE H_____      | [0, +inf)   | 0               |
-| LowPrecision              | PRECISION L_____     |             | 0               |
-| HighPrecision             | PRECISION H_____     | [0, +inf)   | 0               |
-| DrawControllers           | CONTROLLER           | 0 or 1      | 0               |
+This table shows general configurable items that would affect the plugin globally.
 
-For command line configurations, use `.RDF KEYWORD VALUE`, e.g. `.RDF CTRGB 0:255:255`. Replace "_____" with value in low/high altitude/precision directly, e.g. `.RDF ALTITUDE L10000`. All command line functions are case-insensitive.
+| Entry Name | Related Command Line | Value  |  Default Value  |
+| ---------- | -------------------- | :----: | :-------------: |
+| LogLevel   |                      |        |      None       |
+| Bridge     | `.RDF BRIDGE ON/OFF` | 0 or 1 |        1        |
+| Endpoint   | `.RDF RELOAD`        |        | 127.0.0.1:49080 |
 
-In settings files the default is like the following:
++ **LogLevel** is none by default. Accepted levels include none, error, warning, info, debug, verbose. Log levels other than none will automatically save an *RDFPlugin.log* file next to DLL file.
++ **Bridge** controls whether *TrackAudio* and *Audio for VATSIM standalone client* RX/TX stations should be synchronized to EuroScope channels' text receive/transmit.
++ **Endpoint** should include address and port only. E.g. 127.0.0.1:49080 or localhost:49080, etc.
+
+### General Command Line Functions
+
+`.RDF REFRESH`
+
++ Clear transmission records.
++ (*Audio for VATSIM standalone client*) set all channels to off (except primary & active ATIS).
++ (*TrackAudio*, if **Bridge** is **ON**) refresh all channels to sync *TrackAudio*.
+
+`.RDF RELOAD`
+
++ Reload settings in *Settings File Setup*.
++ Discard unsaved modifications and restore configurations per ASR.
++ Reset *TrackAudio* connection.
+  
+> [!TIP]
+> To change the endpoint or mode for *TrackAudio* without exitting EuroScope, you may modify plugin settings file, reload settings file inside EuroScope, then run `.RDF RELOAD`.
+> To change log level, the only way is to unload & reload RDFPlugin.dll inside EuroScope plugin setup dialog.
+
+### Drawing Parameters
+
+This table shows all RDF drawing parameters. All entries allow per-ASR configuration.
+
+| Entry Name                | Command Line Keyword |    Range    | Default Value |
+| ------------------------- | -------------------: | :---------: | :-----------: |
+| EnableDraw                |               `DRAW` |   0 or 1    |       1       |
+| RGB                       |                `RGB` | RRR:GGG:BBB |  255:255:255  |
+| ConcurrentTransmissionRGB |              `CTRGB` | RRR:GGG:BBB |    255:0:0    |
+| Radius                    |             `RADIUS` |  (0, +inf)  |      20       |
+| Threshold                 |          `THRESHOLD` |             |      -1       |
+| Precision                 |          `PRECISION` |  [0, +inf)  |       0       |
+| LowAltitude               |    `ALTITUDE L_____` |             |       0       |
+| HighAltitude              |    `ALTITUDE H_____` |  [0, +inf)  |       0       |
+| LowPrecision              |   `PRECISION L_____` |             |       0       |
+| HighPrecision             |   `PRECISION H_____` |  [0, +inf)  |       0       |
+| DrawControllers           |         `CONTROLLER` |   0 or 1    |       0       |
+
++ **EnableDraw** controls RDF drawing functionality (0 means OFF).
++ **RGB, ConcurrentTransmissionRGB** define drawing colors when single or multiple stations are transmitting at the same time.
++ **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
++ **DrawControllers** is compatible with both *TrackAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be drawn as well. 0 means OFF and other numeric value means ON.
+
+> [!NOTE]
+> When an ASR is opened, the plugin will use the configurations in the sequence of **ASR > plugin settings file > default value**.
+
+### Drawing Parameters Command Line Functions
+
+`.RDF [Keyword] [Value]`
+
++ E.g. `.RDF CTRGB 255:255:0` will set drawing color to yellow for concurrent transmission.
++ Replace `_____` with value in low/high altitude/precision directly, e.g. `.RDF ALTITUDE L10000`
++ Settings will be saved to plugin settings file.
+
+`.RDF ASR [Keyword] [Value]`
+
++ `[Keyword]` and `[Value]` are the same as above.
++ Settings will be saved to ASR file.
++ E.g. `.RDF ASR DRAW 0` will disable RDF in current ASR.
+
+### Samples - Plugin Settings File
 
 ```text
 PLUGINS
 <eventually existing configuration lines>
 RDF Plugin for Euroscope:LogLevel:none
+RDF Plugin for Euroscope:Bridge:1
 RDF Plugin for Euroscope:Endpoint:127.0.0.1:49080
-RDF Plugin for Euroscope:TrackAudioMode:1
+RDF Plugin for Euroscope:EnableDraw:1
 RDF Plugin for Euroscope:RGB:255:255:255
 RDF Plugin for Euroscope:ConcurrentTransmissionRGB:255:0:0
 RDF Plugin for Euroscope:Radius:20
@@ -70,41 +127,39 @@ RDF Plugin for Euroscope:DrawControllers:0
 END
 ```
 
-+ **LogLevel** is none by default. Accepted levels include none, error, warning, info, debug, verbose. Log levels other than none will automatically save an *RDFPlugin.log* file next to DLL file.
-+ **Endpoint** should include address and port only. E.g. 127.0.0.1:49080 or localhost:49080, etc.
-+ **TrackAudioMode** defines the behaviour between RDF and *TrackAudio*. -1 will disable all *TrackAudio* features; 0 will only enable radio-direction-finder; 1 will also update EuroScope channels when *TrackAudio* stations are updated.
-+ **RGB, ConcurrentTransmissionRGB**, see [README](#readme-for-legacy-versions) below.
-+ **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
-+ **DrawControllers** is compatible with both *TrackAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be drawn as well. 0 means OFF and other numeric value means ON.
+```text
+; My own setup
+; To help with diagnose RDF
+RDF Plugin for Euroscope:LogLevel:debug
+; I use Parallels Desktop and run TrackAudio in hosting macOS
+RDF Plugin for Euroscope:Endpoint:10.211.55.2:49080
+RDF Plugin for Euroscope:RGB:0:255:0
+RDF Plugin for Euroscope:ConcurrentTransmissionRGB:255:0:0
+; Drawing parameters are for radar ASRs
+RDF Plugin for Euroscope:Radius:10
+RDF Plugin for Euroscope:Threshold:10
+RDF Plugin for Euroscope:Precision:10
+RDF Plugin for Euroscope:LowAltitude:3000
+RDF Plugin for Euroscope:LowPrecision:2
+RDF Plugin for Euroscope:HighAltitude:41100
+RDF Plugin for Euroscope:HighPrecision:25
+RDF Plugin for Euroscope:DrawControllers:1
+```
 
-## General Command Line Functions
-
-`.RDF REFRESH`
-
-+ Clear transmission records.
-+ (*Audio for VATSIM standalone client*) set all channels to off (except primary & active ATIS).
-+ (*TrackAudio*, when **TrackAudioMode** is not -1 or 0) refresh all channels to sync *TrackAudio*.
-
-`.RDF RELOAD`
-
-+ Reload settings in *Settings File Setup*.
-+ Discard unsaved modifications and restore configurations per ASR.
-+ Reset *TrackAudio* connection.
-  
-> [!TIP]
-> To change the endpoint or mode for *TrackAudio* without exitting EuroScope, you may modify plugin settings file, reload settings file inside EuroScope, then run `.RDF RELOAD`.
-> To change log level, the only way is to unload & reload RDFPlugin.dll inside EuroScope plugin setup dialog.
-
-## Per ASR Configurations
-
-Since v1.3.5, all configurations made by command line funcions, except those related to *TrackAudio*, will only be effective in current ASR and will be saved to ASR instead of plugin settings file. An RDF-configured ASR may contain the following lines, whose value should be consistent with the above:
+### Samples - per-ASR Drawing Parameters
 
 ```text
-; These are not default values!
+; Disables RDF in this ASR
+PLUGIN:RDF Plugin for Euroscope:EnableDraw:0
+```
+
+```text
+; Always draw lines instead of circles, set Threshold to big number
+PLUGIN:RDF Plugin for Euroscope:EnableDraw:1
 PLUGIN:RDF Plugin for Euroscope:RGB:255:255:255
 PLUGIN:RDF Plugin for Euroscope:ConcurrentTransmissionRGB:255:255:0
 PLUGIN:RDF Plugin for Euroscope:Radius:20
-PLUGIN:RDF Plugin for Euroscope:Threshold:-1
+PLUGIN:RDF Plugin for Euroscope:Threshold:99999
 PLUGIN:RDF Plugin for Euroscope:Precision:0
 PLUGIN:RDF Plugin for Euroscope:LowAltitude:0
 PLUGIN:RDF Plugin for Euroscope:HighAltitude:0
@@ -113,7 +168,16 @@ PLUGIN:RDF Plugin for Euroscope:HighPrecision:0
 PLUGIN:RDF Plugin for Euroscope:DrawControllers:1
 ```
 
-When an ASR is opened, the plugin will use the configurations in the sequence of **ASR > plugin settings file > default value**.
+```text
+; My own setup for ground ASRs
+; Circle are centered to aircraft with fixed radius of 20
+PLUGIN:RDF Plugin for Euroscope:Radius:20
+PLUGIN:RDF Plugin for Euroscope:Threshold:-1
+PLUGIN:RDF Plugin for Euroscope:Precision:0
+PLUGIN:RDF Plugin for Euroscope:LowAltitude:0
+PLUGIN:RDF Plugin for Euroscope:LowPrecision:50
+PLUGIN:RDF Plugin for Euroscope:DrawControllers:1
+```
 
 ## Random Offset Schematic
 
