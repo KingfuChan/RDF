@@ -107,7 +107,7 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 {
 	try
 	{
-		PLOGV << "command: " << sCommandLine;
+		PLOGV << "ID: " << m_ID << ", command: " << sCommandLine;
 		std::string cmd = sCommandLine;
 		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
 		bool asr = false;
@@ -127,8 +127,14 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 		}
 		// match config
 		std::smatch match;
+		std::regex rxDraw(R"(^DRAW (ON|OFF)$)", std::regex_constants::icase);
+		if (std::regex_match(cmd, match, rxDraw)) {
+			bool mode = match[1].str() == "ON";
+			SaveDrawSetting(SETTING_ENABLE_DRAW, "Enable RDF draw", std::to_string(mode), asr);
+			return true;
+		}
 		std::regex rxRGB(R"(^(RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
-		if (regex_match(cmd, match, rxRGB)) {
+		if (std::regex_match(cmd, match, rxRGB)) {
 			auto bufferMode = match[1].str();
 			auto bufferRGB = match[2].str();
 			std::transform(bufferMode.begin(), bufferMode.end(), bufferMode.begin(), ::toupper);

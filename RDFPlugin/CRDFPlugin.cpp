@@ -154,7 +154,7 @@ auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 {
 	// functions as AFV bridge
 	PLOGV << "AFV message: " << message;
-	if (!message.size()) return;
+	if (!GetBridgeMode() || !message.size()) return;
 	// format: xxx.xxx:True:False + xxx.xx0:True:False
 
 	// parse message
@@ -197,20 +197,12 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 	// get TrackAudio config
 	PLOGD << "loading TrackAudio settings";
 	addressTrackAudio = "127.0.0.1:49080";
-	modeTrackAudio = 1;
 	try {
 		const char* cstrEndpoint = GetDataFromSettings(SETTING_ENDPOINT);
 		if (cstrEndpoint != nullptr) {
 			addressTrackAudio = cstrEndpoint;
 		}
-		const char* cstrMode = GetDataFromSettings(SETTING_HELPER_MODE);
-		if (cstrMode != nullptr) {
-			int mode = std::stoi(cstrMode);
-			if (mode >= -1 && mode <= 2) {
-				modeTrackAudio = mode;
-			}
-		}
-		PLOGI << "TrackAudio address: " << addressTrackAudio << ", mode: " << modeTrackAudio.load();
+		PLOGI << "TrackAudio address: " << addressTrackAudio;
 	}
 	catch (std::exception const& e)
 	{
@@ -236,11 +228,9 @@ auto CRDFPlugin::LoadTrackAudioSettings(void) -> void
 
 	// initialize TrackAudio WebSocket
 	socketTrackAudio.setUrl(std::format("ws://{}{}", addressTrackAudio, TRACKAUDIO_PARAM_WS));
-	if (modeTrackAudio != -1) {
-		UpdateChannel(std::nullopt, std::nullopt);
-		socketTrackAudio.start();
-		PLOGD << "TrackAudio WebSocket started";
-	}
+	UpdateChannel(std::nullopt, std::nullopt);
+	socketTrackAudio.start();
+	PLOGD << "TrackAudio WebSocket started";
 }
 
 auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> screenPtr) ->  void
@@ -275,6 +265,11 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 		std::unique_lock<std::shared_mutex> lock(mtxDrawSettings);
 		// initialize settings
 		currentDrawSettings.reset(new RDFCommon::draw_settings());
+		auto cstrDraw = GetSetting(SETTING_ENABLE_DRAW);
+		if (cstrDraw.size()) {
+			currentDrawSettings->enabled = (bool)std::stoi(cstrDraw);
+			PLOGV << SETTING_ENABLE_DRAW << ": " << currentDrawSettings->enabled;
+		}
 		auto cstrRGB = GetSetting(SETTING_RGB);
 		if (cstrRGB.size())
 		{
@@ -360,6 +355,28 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 		PLOGE << UNKNOWN_ERROR_MSG;
 		DisplayMessageUnread(UNKNOWN_ERROR_MSG);
 	}
+}
+
+auto CRDFPlugin::GetBridgeMode(void) -> bool
+{
+	// true by default
+	try {
+		auto cstrBridge = GetDataFromSettings(SETTING_ENABLE_BRIDGE);
+		if (cstrBridge != nullptr && !std::stoi(cstrBridge)) {
+			PLOGV << "bridge disabled";
+			return false;
+		}
+	}
+	catch (std::exception const& e)
+	{
+		PLOGE << "Error: " << e.what();
+	}
+	catch (...)
+	{
+		PLOGE << UNKNOWN_ERROR_MSG;
+	}
+	PLOGV << "bridge enabled";
+	return true;
 }
 
 auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> RDFCommon::draw_position
@@ -449,6 +466,7 @@ auto CRDFPlugin::TrackAudioStationStatesHandler(const nlohmann::json& data) -> v
 	// deal with all station states and update ES channels
 	// data is json["value"]
 	// frequencies in kHz
+	if (!GetBridgeMode()) return;
 	for (auto& station : data.at("stations")) {
 		if (station.at("type") == "kStationStateUpdate") {
 			TrackAudioStationStateUpdateHandler(station.at("value"));
@@ -462,7 +480,7 @@ auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data)
 	// used for update message and for "kStationStates" sections
 	// data is json["value"]
 	// frequencies in kHz
-	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT) {
+	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT || !GetBridgeMode()) {
 		return; // prevent conflict with multiple ES instances. Since AFV hidden window it unique, only disable TrackAudio
 	}
 	std::string callsign = data.value("callsign", "");
@@ -598,10 +616,10 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 			else if (msgType == "kRxEnd") {
 				TrackAudioTransmissionHandler(msgValue, true);
 			}
-			else if (msgType == "kStationStateUpdate" && modeTrackAudio > 0) { // only handle with sync on
+			else if (msgType == "kStationStateUpdate") { // only handle with sync on
 				TrackAudioStationStateUpdateHandler(msgValue);
 			}
-			else if (msgType == "kStationStates" && modeTrackAudio > 0) {// only handle with sync on
+			else if (msgType == "kStationStates") {// only handle with sync on
 				TrackAudioStationStatesHandler(msgValue);
 			}
 		}
@@ -657,18 +675,40 @@ auto CRDFPlugin::OnRadarScreenCreated(const char* sDisplayName,
 
 auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 {
-	std::string cmd = sCommandLine;
-	std::smatch match; // all regular expressions will ignore cases
-	PLOGV << "command: " << cmd;
 	try
 	{
-		std::regex rxReload(R"(^.RDF RELOAD$)", std::regex_constants::icase);
-		if (std::regex_match(cmd, match, rxReload)) {
+		std::string cmd = sCommandLine;
+		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper); // make upper
+		std::smatch match; // all regular expressions will ignore cases
+		PLOGV << "command: " << cmd;
+		static const std::string COMMAND_BRIDGE = ".RDF BRIDGE ";
+
+		// bridge on/off
+		if (cmd.starts_with(COMMAND_BRIDGE)) {
+			auto mode = cmd.substr(COMMAND_BRIDGE.size());
+			if (mode == "ON") {
+				SaveDataToSettings(SETTING_ENABLE_BRIDGE, "Enable bridge", "1");
+				std::string logMsg = "Bridge is enabled! Use .RDF REFRESH command to manually sync with TrackAudio.";
+				PLOGI << logMsg;
+				DisplayMessageSilent(logMsg);
+			}
+			else if (mode == "OFF") {
+				SaveDataToSettings(SETTING_ENABLE_BRIDGE, "Enable bridge", "0");
+				std::string logMsg = "Bridge is disable! Future station updates won't sync with channels.";
+				PLOGI << logMsg;
+				DisplayMessageSilent(logMsg);
+			}
+			else {
+				return false;
+			}
+		}
+		// reload
+		if (cmd == ".RDF RELOAD") {
 			LoadTrackAudioSettings();
 			return true;
 		}
-		std::regex rxRefresh(R"(^.RDF REFRESH$)", std::regex_constants::icase);
-		if (std::regex_match(cmd, match, rxRefresh)) {
+		// refresh
+		if (cmd == ".RDF REFRESH") {
 			PLOGD << "refreshing RDF records and station states";
 			std::unique_lock tlock(mtxTransmission);
 			curTransmission.clear();

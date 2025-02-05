@@ -17,9 +17,10 @@ constexpr auto TRACKAUDIO_TIMEOUT_SEC = 1;
 constexpr auto TRACKAUDIO_HEARTBEAT_SEC = 30;
 // Global settings
 constexpr auto SETTING_LOG_LEVEL = "LogLevel"; // see plog::Severity
+constexpr auto SETTING_ENABLE_BRIDGE = "Bridge";
 constexpr auto SETTING_ENDPOINT = "Endpoint";
-constexpr auto SETTING_HELPER_MODE = "TrackAudioMode"; // Default: 1 (station sync TA -> RDF)
 // Shared settings (ASR specific)
+constexpr auto SETTING_ENABLE_DRAW = "EnableDraw";
 constexpr auto SETTING_RGB = "RGB";
 constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
 constexpr auto SETTING_CIRCLE_RADIUS = "Radius";
@@ -72,6 +73,7 @@ namespace RDFCommon {
 
 	// Draw settings
 	typedef struct _draw_settings {
+		bool enabled;
 		COLORREF rdfRGB;
 		COLORREF rdfConcurRGB;
 		int circleRadius;
@@ -84,6 +86,7 @@ namespace RDFCommon {
 		bool drawController;
 
 		_draw_settings(void) {
+			enabled = true;
 			rdfRGB = RGB(255, 255, 255); // Default: white
 			rdfConcurRGB = RGB(255, 0, 0); // Default: red
 			circleRadius = 20; // Default: 20 (nautical miles or pixel), range: (0, +inf)

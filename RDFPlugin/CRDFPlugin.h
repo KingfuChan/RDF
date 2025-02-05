@@ -14,8 +14,8 @@ private:
 	friend class CRDFScreen;
 
 	// screen controls and drawing params
-	std::shared_mutex mtxDrawSettings;
 	std::vector<std::shared_ptr<CRDFScreen>> vecScreen; // index is screen ID (incremental int)
+	std::shared_mutex mtxDrawSettings;
 	std::shared_ptr<RDFCommon::draw_settings> currentDrawSettings;
 
 	// drawing records
@@ -24,7 +24,6 @@ private:
 	RDFCommon::callsign_position preTransmission;
 
 	// TrackAudio WebSocket
-	std::atomic_int modeTrackAudio; // -1: no RDF, 0: no station sync, 1: station sync TA -> RDF, 2: station sync TA <-> RDF
 	std::string addressTrackAudio;
 	ix::WebSocket socketTrackAudio;
 	auto TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) -> void;
@@ -62,6 +61,7 @@ private:
 	auto LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> screenPtr) -> void;
 
 	// functional things 
+	auto GetBridgeMode(void) -> bool;
 	auto GenerateDrawPosition(std::string callsign) -> RDFCommon::draw_position;
 	auto TrackAudioTransmissionHandler(const nlohmann::json& data, const bool& rxEnd) -> void;
 	auto TrackAudioStationStatesHandler(const nlohmann::json& data) -> void;
