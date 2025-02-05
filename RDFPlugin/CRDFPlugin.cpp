@@ -704,24 +704,3 @@ auto CRDFPlugin::OnGetTagItem(EuroScopePlugIn::CFlightPlan FlightPlan, EuroScope
 		strcpy_s(sItemString, 2, "!");
 	}
 }
-
-auto AddOffset(EuroScopePlugIn::CPosition& position, const double& heading, const double& distance) -> void
-{
-	// from ES internal void CEuroScopeCoord :: Move ( double heading, double distance )
-	if (distance < 0.000001)
-		return;
-
-	double m_Lat = position.m_Latitude;
-	double m_Lon = position.m_Longitude;
-
-	double distancePerR = distance / EarthRadius;
-	double cosDistancePerR = cos(distancePerR);
-	double sinDistnacePerR = sin(distancePerR);
-
-	double fi2 = asin(sin(GEOM_RAD_FROM_DEG(m_Lat)) * cosDistancePerR + cos(GEOM_RAD_FROM_DEG(m_Lat)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(heading)));
-	double lambda2 = GEOM_RAD_FROM_DEG(m_Lon) + atan2(sin(GEOM_RAD_FROM_DEG(heading)) * sinDistnacePerR * cos(GEOM_RAD_FROM_DEG(m_Lat)),
-		cosDistancePerR - sin(GEOM_RAD_FROM_DEG(m_Lat)) * sin(fi2));
-
-	position.m_Latitude = GEOM_DEG_FROM_RAD(fi2);
-	position.m_Longitude = GEOM_DEG_FROM_RAD(lambda2);
-}
