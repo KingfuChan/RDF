@@ -83,10 +83,10 @@ This table shows all RDF drawing parameters. All entries allow per-ASR configura
 | HighPrecision             |   `PRECISION H_____` |  [0, +inf)  |       0       |
 | DrawControllers           |         `CONTROLLER` |   0 or 1    |       0       |
 
-+ **EnableDraw** controls RDF drawing functionality (0 means OFF).
++ **EnableDraw** controls RDF drawing functionality. 0 means OFF.
 + **RGB, ConcurrentTransmissionRGB** define drawing colors when single or multiple stations are transmitting at the same time.
 + **Radius, Threshold, Precision, LowAltitude, HighAltitude, LowPrecision, HighPrecision** see [Random Offset Schematic](#random-offset-schematic) below.
-+ **DrawControllers** is compatible with both *TrackAudio* and *Audio for VATSIM standalone client*. Other transimitting controllers will be drawn as well. 0 means OFF and other numeric value means ON.
++ **DrawControllers** controls whether transimitting controllers should be drawn as well. 0 means OFF.
 
 > [!NOTE]
 > When an ASR is opened, the plugin will use the configurations in the sequence of **ASR > plugin settings file > default value**.
@@ -127,7 +127,6 @@ This table shows all RDF drawing parameters. All entries allow per-ASR configura
 ### Samples - Plugin Settings File
 
 ```text
-PLUGINS
 RDF Plugin for Euroscope:LogLevel:none
 RDF Plugin for Euroscope:Bridge:1
 RDF Plugin for Euroscope:Endpoint:127.0.0.1:49080
@@ -142,7 +141,6 @@ RDF Plugin for Euroscope:HighAltitude:0
 RDF Plugin for Euroscope:LowPrecision:0
 RDF Plugin for Euroscope:HighPrecision:0
 RDF Plugin for Euroscope:DrawControllers:0
-END
 ```
 
 ```text
