@@ -53,16 +53,16 @@ This table shows general configurable items that would affect the plugin globall
 
 + Clear transmission records.
 + (*Audio for VATSIM standalone client*) set all channels to off (except primary & active ATIS).
-+ (*TrackAudio*, if **Bridge** is **ON**) refresh all channels to sync *TrackAudio*.
++ (*TrackAudio*, if **Bridge** is **ON**) try to synchronize all RX/TX with *TrackAudio*.
 
 `.RDF RELOAD`
 
-+ Reload settings in *Settings File Setup*.
-+ Discard unsaved modifications and restore configurations per ASR.
++ Clear transmission records.
 + Reset *TrackAudio* connection.
   
 > [!TIP]
 > To change the endpoint or mode for *TrackAudio* without exitting EuroScope, you may modify plugin settings file, reload settings file inside EuroScope, then run `.RDF RELOAD`.
+>
 > To change log level, the only way is to unload & reload RDFPlugin.dll inside EuroScope plugin setup dialog.
 
 ### Drawing Parameters
@@ -105,11 +105,29 @@ This table shows all RDF drawing parameters. All entries allow per-ASR configura
 + Settings will be saved to ASR file.
 + E.g. `.RDF ASR DRAW 0` will disable RDF in current ASR.
 
+### Random Offset Schematic
+
++ **LowAltitude** in feet, is used to filter aircrafts. Only aircrafts not lower than this altitude will be radio-direction-found.
++ A circle will only be drawn within radar display area. Otherwise a line leading to the target is drawn.
++ Random offsets (when enabled) follow a normal distribution. 99.74% (-3σ ~ 3σ) of offsets are within given precision.
++ **Threshold < 0**:
+  + **Radius** is in pixel. Circles are always drawn in fixed pixel radius.
+  + **Precision** is used for random offset in nautical miles.
+  + Low/High settings are ignored.
++ **Threshold >= 0**:
+  + **Threshold** is in pixel. **Radius** is in nautical miles. **Precision** is in nautical miles.
+  + Circle size will change according to zoom level. Circles are drawn only when its pixel radius is not less than **Threshold**. Otherwise a line leading to the target is drawn.
+  + When **LowPrecision > 0**:
+    + Deprecates **Radius**. All circle radius is determined by precision.
+    + If **HighPrecision > 0 and HighAltitude > LowAltitude**:
+      + Overrides **Precision**. Dynamaic precision is implemented taking aircraft altitude into account.
+      + Precision (= radius) is linearly interpolated or extrapolated by altitude and low/high settings. `Precision = LowPrecision + (Altitude - LowAltitude) / (HighAltitude - LowAltitude) * (HighPrecision - LowPrecision)`
+    + Otherwise **LowPrecision** precedes **Precision** when determining random offset.
+
 ### Samples - Plugin Settings File
 
 ```text
 PLUGINS
-<eventually existing configuration lines>
 RDF Plugin for Euroscope:LogLevel:none
 RDF Plugin for Euroscope:Bridge:1
 RDF Plugin for Euroscope:Endpoint:127.0.0.1:49080
@@ -146,7 +164,7 @@ RDF Plugin for Euroscope:HighPrecision:25
 RDF Plugin for Euroscope:DrawControllers:1
 ```
 
-### Samples - per-ASR Drawing Parameters
+### Samples - Per-ASR Drawing Parameters
 
 ```text
 ; Disables RDF in this ASR
@@ -179,25 +197,6 @@ PLUGIN:RDF Plugin for Euroscope:LowPrecision:50
 PLUGIN:RDF Plugin for Euroscope:DrawControllers:1
 ```
 
-## Random Offset Schematic
-
-+ **LowAltitude** in feet, is used to filter aircrafts. Only aircrafts not lower than this altitude will be radio-direction-found.
-+ A circle will only be drawn within radar display area. Otherwise a line leading to the target is drawn.
-+ Random offsets (when enabled) follow a normal distribution. 99.74% (-3σ ~ 3σ) of offsets are within given precision.
-+ **Threshold < 0**:
-  + **Radius** is in pixel. Circles are always drawn in fixed pixel radius.
-  + **Precision** is used for random offset in nautical miles.
-  + Low/High settings are ignored.
-+ **Threshold >= 0**:
-  + **Threshold** is in pixel. **Radius** is in nautical miles. **Precision** is in nautical miles.
-  + Circle size will change according to zoom level. Circles are drawn only when its pixel radius is not less than **Threshold**. Otherwise a line leading to the target is drawn.
-  + When **LowPrecision > 0**:
-    + Deprecates **Radius**. All circle radius is determined by precision.
-    + If **HighPrecision > 0 and HighAltitude > LowAltitude**:
-      + Overrides **Precision**. Dynamaic precision is implemented taking aircraft altitude into account.
-      + Precision (= radius) is linearly interpolated or extrapolated by altitude and low/high settings. `Precision = LowPrecision + (Altitude - LowAltitude) / (HighAltitude - LowAltitude) * (HighPrecision - LowPrecision)`
-    + Otherwise **LowPrecision** precedes **Precision** when determining random offset.
-
 ## Known Issues
 
 + EuroScope may crash when using TopSky at the same time with certain TopSky settings due to conflicting API method to communicate with *Audio for VATSIM standalone client*. Goto *TopSkySettings.txt* and add `RDF_Mode=-1` to prevent such cases.
@@ -213,7 +212,7 @@ PLUGIN:RDF Plugin for Euroscope:DrawControllers:1
 + *Audio for VATSIM standalone client* doesn't provide callsign for RX/TX, so this plugin has to guess the corresponding callsign and it doesn't guarantee 100% correct toggles. But it shouldn't affect text receive and transmit function.
 + When using professional correlation mode (S or C) in EuroScope, it's possible some aircraft won't be radio-direction-found because the plugin doesn't know the callsign for an uncorrelated radar target.
 + For dual pilot situation where the transmitting pilot logs in as observer, this plugin will try to drop the last character of the observer callsign and find again if this dropped character is between A-Z. This feature may cause inaccurate radio-direction.
-+ Because of new drawing behaviour introduced after *EuroScope v3.2.3*, switching between ASRs may not change the plugin drawing configurations. In such case, simply pan/zoom your view to update configurations per ASR.
++ Because of new drawing behaviour introduced after *EuroScope v3.2.3*, switching ASRs may not change the plugin drawing configurations. In such case, simply pan/zoom your view to update configurations per ASR.
 
 ## Credits
 
@@ -229,4 +228,6 @@ PLUGIN:RDF Plugin for Euroscope:DrawControllers:1
 
 [Vcpkg](https://vcpkg.io/), either standalone or bundled with Visual Studio v17.6+, is required. Run `vcpkg integrate install` in Visual Studio CMD/Powershell and build directly.
 
-## [README for Legacy Versions](https://github.com/chembergj/RDF#rdf)
+## README for Legacy Versions
+
+See <https://github.com/chembergj/RDF#rdf>.
