@@ -7,26 +7,32 @@ CRDFScreen::CRDFScreen(std::weak_ptr<CRDFPlugin> plugin, const int& ID)
 {
 	m_Plugin = plugin;
 	m_ID = ID;
-	m_Opened = true;
-	PLOGD << "created, ID: " << m_ID;
+	m_Opened = false;
+	PLOGI << "created, ID: " << m_ID;
 }
 
 CRDFScreen::~CRDFScreen()
 {
-	PLOGD << "screen destroyed, ID: " << m_ID;
+	PLOGI << "screen destroyed, ID: " << m_ID;
+}
+
+auto CRDFScreen::OnAsrContentLoaded(bool Loaded) -> void
+{
+	m_Opened = true;
+	PLOGI << "content loaded, ID: " << m_ID;
 }
 
 auto CRDFScreen::OnAsrContentToBeClosed(void) -> void
 {
 	m_Opened = false; // should not delete this to avoid crash
-	PLOGD << "screen closed, ID " << m_ID;
+	PLOGI << "screen closed, ID " << m_ID;
 }
 
 auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 {
-	std::shared_lock dlock(m_Plugin.lock()->mtxDrawSettings); // prevent accidental modification
+	if (!m_Opened) return;
 	if (Phase == EuroScopePlugIn::REFRESH_PHASE_BACK_BITMAP) {
-		PLOGV << "updating screen, ID: " << m_ID;
+		PLOGD << "updating screen, ID: " << m_ID;
 		m_Plugin.lock()->LoadDrawingSettings(shared_from_this());
 		return;
 	}
@@ -37,6 +43,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 		return;
 	}
 
+	std::shared_lock dlock(m_Plugin.lock()->mtxDrawSettings); // prevent accidental modification
 	const RDFCommon::draw_settings params = *m_Plugin.lock()->currentDrawSettings;
 	dlock.unlock();
 
@@ -98,94 +105,99 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 
 auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 {
-
-	// pass screenID = -1 to use plugin settings, otherwise use ASR settings
-	// deals with settings available for asr
-	auto pluginPtr = m_Plugin.lock();
-	auto SaveSetting = [&](const auto& varName, const auto& varDescr, const auto& val) -> void {
-		SaveDataToAsr(varName, varDescr, val);
-		auto logMsg = std::format("Add ASR configurations to be saved, {}: {}", varName, val);
-		PLOGI << logMsg;
-		pluginPtr->DisplayMessageSilent(logMsg);
-		};
 	try
 	{
-		std::string command = sCommandLine;
-		PLOGV << "command: " << command;
+		PLOGV << "command: " << sCommandLine;
+		std::string cmd = sCommandLine;
+		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
+		bool asr = false;
+		static const std::string COMMAND_ASR = ".RDF ASR ";
+		static const std::string COMMAND_PLUGIN = ".RDF ";
+		if (cmd.starts_with(COMMAND_ASR)) { // test per-ASR
+			cmd = cmd.substr(COMMAND_ASR.size());
+			PLOGV << "matching ASR config";
+			asr = true;
+		}
+		else if (cmd.starts_with(COMMAND_PLUGIN)) {
+			cmd = cmd.substr(COMMAND_PLUGIN.size());
+			PLOGV << "matching plugin config";
+		}
+		else {
+			return false;
+		}
+		// match config
 		std::smatch match;
-		std::regex rxRGB(R"(^.RDF (RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
-		if (regex_match(command, match, rxRGB)) {
+		std::regex rxRGB(R"(^(RGB|CTRGB) (\S+)$)", std::regex_constants::icase);
+		if (regex_match(cmd, match, rxRGB)) {
 			auto bufferMode = match[1].str();
 			auto bufferRGB = match[2].str();
 			std::transform(bufferMode.begin(), bufferMode.end(), bufferMode.begin(), ::toupper);
 			COLORREF _rgb = RGB(0, 0, 0);
 			if (RDFCommon::GetRGB(_rgb, bufferRGB)) {
 				if (bufferMode == "RGB") {
-					SaveSetting(SETTING_RGB, "RGB", bufferRGB.c_str());
+					SaveDrawSetting(SETTING_RGB, "RGB", bufferRGB, asr);
 				}
 				else {
-					SaveSetting(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB.c_str());
+					SaveDrawSetting(SETTING_CONCURRENT_RGB, "Concurrent RGB", bufferRGB, asr);
 				}
 				return true;
 			}
 		}
 		// no need for regex
-		std::string cmd = command;
-		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
 		int bufferRadius;
-		if (sscanf_s(cmd.c_str(), ".RDF RADIUS %d", &bufferRadius) == 1) {
+		if (sscanf_s(cmd.c_str(), "RADIUS %d", &bufferRadius) == 1) {
 			if (bufferRadius > 0) {
-				SaveSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(bufferRadius).c_str());
+				SaveDrawSetting(SETTING_CIRCLE_RADIUS, "Radius", std::to_string(bufferRadius), asr);
 				return true;
 			}
 		}
 		int bufferThreshold;
-		if (sscanf_s(cmd.c_str(), ".RDF THRESHOLD %d", &bufferThreshold) == 1) {
-			SaveSetting(SETTING_THRESHOLD, "Threshold", std::to_string(bufferThreshold).c_str());
+		if (sscanf_s(cmd.c_str(), "THRESHOLD %d", &bufferThreshold) == 1) {
+			SaveDrawSetting(SETTING_THRESHOLD, "Threshold", std::to_string(bufferThreshold), asr);
 			return true;
 		}
 		int bufferAltitude;
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE L%d", &bufferAltitude) == 1) {
-			SaveSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(bufferAltitude).c_str());
+		if (sscanf_s(cmd.c_str(), "ALTITUDE L%d", &bufferAltitude) == 1) {
+			SaveDrawSetting(SETTING_LOW_ALTITUDE, "Altitude (low)", std::to_string(bufferAltitude), asr);
 			return true;
 		}
-		if (sscanf_s(cmd.c_str(), ".RDF ALTITUDE H%d", &bufferAltitude) == 1) {
-			SaveSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(bufferAltitude).c_str());
+		if (sscanf_s(cmd.c_str(), "ALTITUDE H%d", &bufferAltitude) == 1) {
+			SaveDrawSetting(SETTING_HIGH_ALTITUDE, "Altitude (high)", std::to_string(bufferAltitude), asr);
 			return true;
 		}
 		int bufferPrecision;
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION L%d", &bufferPrecision) == 1) {
+		if (sscanf_s(cmd.c_str(), "PRECISION L%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				SaveSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(bufferPrecision).c_str());
+				SaveDrawSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(bufferPrecision), asr);
 				return true;
 			}
 		}
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION H%d", &bufferPrecision) == 1) {
+		if (sscanf_s(cmd.c_str(), "PRECISION H%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				SaveSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(bufferPrecision).c_str());
+				SaveDrawSetting(SETTING_HIGH_PRECISION, "Precision (high)", std::to_string(bufferPrecision), asr);
 				return true;
 			}
 		}
-		if (sscanf_s(cmd.c_str(), ".RDF PRECISION %d", &bufferPrecision) == 1) {
+		if (sscanf_s(cmd.c_str(), "PRECISION %d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
-				SaveSetting(SETTING_PRECISION, "Precision", std::to_string(bufferPrecision).c_str());
+				SaveDrawSetting(SETTING_PRECISION, "Precision", std::to_string(bufferPrecision), asr);
 				return true;
 			}
 		}
 		int bufferCtrl;
-		if (sscanf_s(cmd.c_str(), ".RDF CONTROLLER %d", &bufferCtrl) == 1) {
-			SaveSetting(SETTING_DRAW_CONTROLLERS, "Draw controllers", std::to_string(bufferCtrl).c_str());
+		if (sscanf_s(cmd.c_str(), "CONTROLLER %d", &bufferCtrl) == 1) {
+			SaveDrawSetting(SETTING_DRAW_CONTROLLERS, "Draw controllers", std::to_string(bufferCtrl), asr);
 			return true;
 		}
 	}
 	catch (std::exception const& e)
 	{
 		PLOGE << "Error: " << e.what();
-		pluginPtr->DisplayMessageUnread(std::string("Error: ") + e.what());
+		m_Plugin.lock()->DisplayMessageUnread(std::string("Error: ") + e.what());
 	}
 	catch (...) {
 		PLOGE << UNKNOWN_ERROR_MSG;
-		pluginPtr->DisplayMessageUnread(UNKNOWN_ERROR_MSG);
+		m_Plugin.lock()->DisplayMessageUnread(UNKNOWN_ERROR_MSG);
 	}
 	return false;
 }
@@ -193,4 +205,19 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 auto CRDFScreen::PlaneIsVisible(const POINT& p, const RECT& radarArea) -> bool
 {
 	return p.x >= radarArea.left && p.x <= radarArea.right && p.y >= radarArea.top && p.y <= radarArea.bottom;
+}
+
+auto CRDFScreen::SaveDrawSetting(const std::string& varName, const std::string& varDescr, const std::string& val, const bool& useAsr) -> void
+{
+	std::string logMsg;
+	if (useAsr) {
+		SaveDataToAsr(varName.c_str(), varDescr.c_str(), val.c_str());
+		logMsg = std::format("ASR configurations, {}: {}", varName, val);
+	}
+	else {
+		m_Plugin.lock()->SaveDataToSettings(varName.c_str(), varDescr.c_str(), val.c_str());
+		logMsg = std::format("Plugin configurations, {}: {}", varName, val);
+	}
+	PLOGI << logMsg;
+	m_Plugin.lock()->DisplayMessageSilent(logMsg);
 }

@@ -15,6 +15,7 @@ private:
 	int m_ID;
 
 	auto PlaneIsVisible(const POINT& p, const RECT& radarArea) -> bool;
+	auto SaveDrawSetting(const std::string& varName, const std::string& varDescr, const std::string& val, const bool& useAsr) -> void;
 
 public:
 	CRDFScreen(std::weak_ptr<CRDFPlugin> plugin, const int& ID);
@@ -22,6 +23,7 @@ public:
 
 	bool m_Opened;
 
+	virtual auto OnAsrContentLoaded(bool Loaded) -> void;
 	virtual auto OnAsrContentToBeClosed(void) -> void;
 	virtual auto OnRefresh(HDC hDC, int Phase) -> void;
 	virtual auto OnCompileCommand(const char* sCommandLine) -> bool;

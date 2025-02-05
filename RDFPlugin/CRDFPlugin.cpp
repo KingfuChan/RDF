@@ -252,7 +252,7 @@ auto CRDFPlugin::LoadDrawingSettings(std::optional<std::shared_ptr<CRDFScreen>> 
 	// lowPrecision > 0 and highPrecision > 0 and lowAltitude < highAltitude, will override circleRadius and circlePrecision with dynamic precision/radius
 	// lowPrecision > 0 but not meeting the above, will use lowPrecision (> 0) or circlePrecision
 
-	PLOGI << "loading drawing settings, is ASR: " << (bool)screenPtr;
+	PLOGD << "loading drawing settings, is ASR: " << (bool)screenPtr;
 	auto GetSetting = [&](const auto& varName) -> std::string {
 		if (screenPtr && (*screenPtr)->m_Opened) {
 			auto ds = (*screenPtr)->GetDataFromAsr(varName);
