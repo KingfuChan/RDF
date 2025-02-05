@@ -397,6 +397,7 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> RDFCommon::draw_p
 		radarTarget = RadarTargetSelect(callsign_dump.c_str());
 	}
 	std::shared_lock dlock(mtxDrawSettings);
+	bool enableDraw = currentDrawSettings->enabled;
 	int circleRadius = currentDrawSettings->circleRadius;
 	int circlePrecision = currentDrawSettings->circlePrecision;
 	int circleThreshold = currentDrawSettings->circleThreshold;
@@ -406,7 +407,7 @@ auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> RDFCommon::draw_p
 	int highPrecision = currentDrawSettings->highPrecision;
 	bool drawController = currentDrawSettings->drawController;
 	dlock.unlock();
-	if (radarTarget.IsValid()) {
+	if (radarTarget.IsValid() && enableDraw) {
 		int alt = radarTarget.GetPosition().GetPressureAltitude();
 		if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
 			EuroScopePlugIn::CPosition pos = radarTarget.GetPosition().GetPosition();
@@ -691,12 +692,14 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 				std::string logMsg = "Bridge is enabled! Use .RDF REFRESH command to manually sync with TrackAudio.";
 				PLOGI << logMsg;
 				DisplayMessageSilent(logMsg);
+				return true;
 			}
 			else if (mode == "OFF") {
 				SaveDataToSettings(SETTING_ENABLE_BRIDGE, "Enable bridge", "0");
 				std::string logMsg = "Bridge is disable! Future station updates won't sync with channels.";
 				PLOGI << logMsg;
 				DisplayMessageSilent(logMsg);
+				return true;
 			}
 			else {
 				return false;
