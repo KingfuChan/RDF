@@ -123,7 +123,7 @@ CRDFPlugin::~CRDFPlugin()
 
 auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 {
-	PLOGV << "AFV message: " << message;
+	PLOGD << "AFV message: " << message;
 	std::unique_lock tlock(mtxTransmission);
 	if (message.size()) {
 		std::vector<std::string> callsigns;
@@ -153,7 +153,7 @@ auto CRDFPlugin::HiddenWndProcessRDFMessage(const std::string& message) -> void
 auto CRDFPlugin::HiddenWndProcessAFVMessage(const std::string& message) -> void
 {
 	// functions as AFV bridge
-	PLOGV << "AFV message: " << message;
+	PLOGD << "AFV message: " << message;
 	if (!GetBridgeMode() || !message.size()) return;
 	// format: xxx.xxx:True:False + xxx.xx0:True:False
 
@@ -382,58 +382,68 @@ auto CRDFPlugin::GetBridgeMode(void) -> bool
 auto CRDFPlugin::GenerateDrawPosition(std::string callsign) -> RDFCommon::draw_position
 {
 	// return radius=0 for no draw
+	try
+	{
+		// randoms
+		static std::random_device randomDevice;
+		static std::mt19937 rdGenerator(randomDevice());
+		static std::uniform_real_distribution<> disBearing(0.0, 360.0);
+		static std::normal_distribution<> disDistance(0, 1.0);
 
-	// randoms
-	static std::random_device randomDevice;
-	static std::mt19937 rdGenerator(randomDevice());
-	static std::uniform_real_distribution<> disBearing(0.0, 360.0);
-	static std::normal_distribution<> disDistance(0, 1.0);
-
-	auto radarTarget = RadarTargetSelect(callsign.c_str());
-	auto controller = ControllerSelect(callsign.c_str());
-	if (!radarTarget.IsValid() && controller.IsValid() && callsign.back() >= 'A' && callsign.back() <= 'Z') {
-		// dump last character and find callsign again
-		std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
-		radarTarget = RadarTargetSelect(callsign_dump.c_str());
-	}
-	std::shared_lock dlock(mtxDrawSettings);
-	bool enableDraw = currentDrawSettings->enabled;
-	int circleRadius = currentDrawSettings->circleRadius;
-	int circlePrecision = currentDrawSettings->circlePrecision;
-	int circleThreshold = currentDrawSettings->circleThreshold;
-	int lowAltitude = currentDrawSettings->lowAltitude;
-	int highAltitude = currentDrawSettings->highAltitude;
-	int lowPrecision = currentDrawSettings->lowPrecision;
-	int highPrecision = currentDrawSettings->highPrecision;
-	bool drawController = currentDrawSettings->drawController;
-	dlock.unlock();
-	if (radarTarget.IsValid() && enableDraw) {
-		int alt = radarTarget.GetPosition().GetPressureAltitude();
-		if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
-			EuroScopePlugIn::CPosition pos = radarTarget.GetPosition().GetPosition();
-			double radius = circleRadius;
-			// determines offset
-			double offset = circlePrecision;
-			if (circleThreshold >= 0 && (lowPrecision > 0 || circlePrecision > 0)) {
-				if (highPrecision > 0 && highAltitude > lowAltitude) {
-					offset = (double)lowPrecision + (double)(alt - lowAltitude) * (double)(highPrecision - lowPrecision) / (double)(highAltitude - lowAltitude);
+		auto radarTarget = RadarTargetSelect(callsign.c_str());
+		auto controller = ControllerSelect(callsign.c_str());
+		if (!radarTarget.IsValid() && controller.IsValid() && callsign.back() >= 'A' && callsign.back() <= 'Z') {
+			// dump last character and find callsign again
+			std::string callsign_dump = callsign.substr(0, callsign.size() - 1);
+			radarTarget = RadarTargetSelect(callsign_dump.c_str());
+		}
+		std::shared_lock dlock(mtxDrawSettings);
+		bool enableDraw = currentDrawSettings->enabled;
+		int circleRadius = currentDrawSettings->circleRadius;
+		int circlePrecision = currentDrawSettings->circlePrecision;
+		int circleThreshold = currentDrawSettings->circleThreshold;
+		int lowAltitude = currentDrawSettings->lowAltitude;
+		int highAltitude = currentDrawSettings->highAltitude;
+		int lowPrecision = currentDrawSettings->lowPrecision;
+		int highPrecision = currentDrawSettings->highPrecision;
+		bool drawController = currentDrawSettings->drawController;
+		dlock.unlock();
+		if (radarTarget.IsValid() && enableDraw) {
+			int alt = radarTarget.GetPosition().GetPressureAltitude();
+			if (alt >= lowAltitude) { // need to draw, see Schematic in LoadSettings
+				EuroScopePlugIn::CPosition pos = radarTarget.GetPosition().GetPosition();
+				double radius = circleRadius;
+				// determines offset
+				double offset = circlePrecision;
+				if (circleThreshold >= 0 && (lowPrecision > 0 || circlePrecision > 0)) {
+					if (highPrecision > 0 && highAltitude > lowAltitude) {
+						offset = (double)lowPrecision + (double)(alt - lowAltitude) * (double)(highPrecision - lowPrecision) / (double)(highAltitude - lowAltitude);
+					}
+					else {
+						offset = lowPrecision > 0 ? lowPrecision : circlePrecision;
+					}
+					radius = offset;
 				}
-				else {
-					offset = lowPrecision > 0 ? lowPrecision : circlePrecision;
+				if (offset > 0) { // add random offset
+					double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
+					double bearing = disBearing(rdGenerator);
+					RDFCommon::AddOffset(pos, bearing, distance);
 				}
-				radius = offset;
+				return RDFCommon::draw_position(pos, radius);
 			}
-			if (offset > 0) { // add random offset
-				double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
-				double bearing = disBearing(rdGenerator);
-				RDFCommon::AddOffset(pos, bearing, distance);
-			}
-			return RDFCommon::draw_position(pos, radius);
+		}
+		else if (drawController && controller.IsValid()) {
+			auto pos = controller.GetPosition();
+			return RDFCommon::draw_position(pos, circleRadius);
 		}
 	}
-	else if (drawController && controller.IsValid()) {
-		auto pos = controller.GetPosition();
-		return RDFCommon::draw_position(pos, circleRadius);
+	catch (std::exception const& e)
+	{
+		PLOGE << "Error: " << e.what();
+	}
+	catch (...)
+	{
+		PLOGE << UNKNOWN_ERROR_MSG;
 	}
 	return RDFCommon::draw_position();
 }
@@ -610,7 +620,7 @@ auto CRDFPlugin::TrackAudioMessageHandler(const ix::WebSocketMessagePtr& msg) ->
 {
 	try {
 		if (msg->type == ix::WebSocketMessageType::Message) {
-			PLOGV << "WS MSG: " << msg->str;
+			PLOGD << "WS MSG: " << msg->str;
 			auto data = nlohmann::json::parse(msg->str);
 			std::string msgType = data["type"];
 			nlohmann::json msgValue = data["value"];
@@ -681,10 +691,10 @@ auto CRDFPlugin::OnCompileCommand(const char* sCommandLine) -> bool
 {
 	try
 	{
+		PLOGD << sCommandLine;
 		std::string cmd = sCommandLine;
 		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper); // make upper
 		std::smatch match; // all regular expressions will ignore cases
-		PLOGV << "command: " << cmd;
 		static const std::string COMMAND_BRIDGE = ".RDF BRIDGE ";
 
 		// bridge on/off

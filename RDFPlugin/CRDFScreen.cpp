@@ -43,6 +43,7 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 		return;
 	}
 
+	PLOGV << "drawing RDF";
 	std::shared_lock dlock(m_Plugin.lock()->mtxDrawSettings); // prevent accidental modification
 	const RDFCommon::draw_settings params = *m_Plugin.lock()->currentDrawSettings;
 	dlock.unlock();
@@ -101,13 +102,14 @@ auto CRDFScreen::OnRefresh(HDC hDC, int Phase) -> void
 	SelectObject(hDC, oldBrush);
 	SelectObject(hDC, oldPen);
 	DeleteObject(hPen);
+	PLOGV << "draw complete";
 }
 
 auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 {
 	try
 	{
-		PLOGV << "ID: " << m_ID << ", command: " << sCommandLine;
+		PLOGD << "(ID: " << m_ID << ") " << sCommandLine;
 		std::string cmd = sCommandLine;
 		std::transform(cmd.begin(), cmd.end(), cmd.begin(), ::toupper);
 		bool asr = false;
