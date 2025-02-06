@@ -45,7 +45,7 @@ inline static constexpr auto GEOM_DEG_FROM_RAD(const double& rad) -> double { re
 // Inline functions
 inline static auto FrequencyFromMHz(const double& freq) -> int { return (int)round(freq * 1000.0); };
 inline static auto FrequencyFromHz(const double& freq) -> int { return (int)round(freq / 1000.0); };
-inline static auto FrequencyIsSame(const auto& freq1, const auto& freq2) -> bool { return abs(freq1 - freq2) <= 10; }; // return true if same frequency, frequency in kHz
+inline static auto FrequencyIsSame(const auto& freq1, const auto& freq2) -> bool { return abs(freq1 - freq2) <= 2; }; // return true if same frequency, frequency in kHz
 
 namespace RDFCommon {
 

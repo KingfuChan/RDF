@@ -494,9 +494,12 @@ auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data)
 
 auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& callsign, const std::optional<int>& frequency) -> EuroScopePlugIn::CGrountToAirChannel
 {
+	auto MatchChannelName = [&](const std::string& channelName, const std::string& callsign) -> bool {
+		return channelName.find(callsign) != std::string::npos;
+		};
 	if (callsign && frequency) { // find precise match
 		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
-			if (*callsign == chnl.GetName() && FrequencyIsSame(FrequencyFromMHz(chnl.GetFrequency()), *frequency)) {
+			if (MatchChannelName(chnl.GetName(), *callsign) && FrequencyIsSame(FrequencyFromMHz(chnl.GetFrequency()), *frequency)) {
 				PLOGD << "precise match is found: " << *callsign << " - " << *frequency;
 				return chnl;
 			}
@@ -504,7 +507,7 @@ auto CRDFPlugin::SelectGroundToAirChannel(const std::optional<std::string>& call
 	}
 	else if (callsign) { // match callsign only
 		for (auto chnl = GroundToArChannelSelectFirst(); chnl.IsValid(); chnl = GroundToArChannelSelectNext(chnl)) {
-			if (*callsign == chnl.GetName()) {
+			if (MatchChannelName(chnl.GetName(), *callsign)) {
 				PLOGD << "callsign match is found: " << *callsign << " - " << FrequencyFromMHz(chnl.GetFrequency());
 				return chnl;
 			}
