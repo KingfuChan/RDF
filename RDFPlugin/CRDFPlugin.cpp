@@ -103,7 +103,9 @@ CRDFPlugin::CRDFPlugin()
 
 CRDFPlugin::~CRDFPlugin()
 {
-	// disconnect TrackAudio connection
+	PLOGD << "destroying all screen instances";
+	vecScreen.clear();
+
 	PLOGD << "stopping TrackAudio WS";
 	socketTrackAudio.stop();
 	ix::uninitNetSystem();
