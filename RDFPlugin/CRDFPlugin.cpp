@@ -17,7 +17,7 @@ CRDFPlugin::CRDFPlugin()
 	DWORD moduleNameRes = GetModuleFileName(pluginModule, pBuffer, sizeof(pBuffer) / sizeof(TCHAR) - 1);
 	std::filesystem::path dllPath = moduleNameRes != 0 ? pBuffer : "";
 	auto logPath = dllPath.parent_path() / "RDFPlugin.log";
-	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1000000, 1); // 1 MB of 1 file
+	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 10e6, 3); // apprx. 10 MB * 3
 #ifdef _DEBUG
 	auto severity = plog::verbose;
 #else
