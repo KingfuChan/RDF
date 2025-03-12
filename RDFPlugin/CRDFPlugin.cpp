@@ -17,7 +17,7 @@ CRDFPlugin::CRDFPlugin()
 	DWORD moduleNameRes = GetModuleFileName(pluginModule, pBuffer, sizeof(pBuffer) / sizeof(TCHAR) - 1);
 	std::filesystem::path dllPath = moduleNameRes != 0 ? pBuffer : "";
 	auto logPath = dllPath.parent_path() / "RDFPlugin.log";
-	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 10e6, 3); // apprx. 10 MB * 3
+	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str()); // no rolling bahaviour
 #ifdef _DEBUG
 	auto severity = plog::verbose;
 #else
@@ -493,8 +493,13 @@ auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data)
 	// used for update message and for "kStationStates" sections
 	// data is json["value"]
 	// frequencies in kHz
-	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT || !GetBridgeMode()) {
-		return; // prevent conflict with multiple ES instances. Since AFV hidden window it unique, only disable TrackAudio
+	if (!GetBridgeMode()
+#ifndef DEBUG
+		// prevent conflict with multiple ES instances. Since AFV hidden window it unique, only disable TrackAudio
+		|| GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT
+#endif // DEBUG
+		) {
+		return;
 	}
 	std::string callsign = data.value("callsign", "");
 	RDFCommon::chnl_state state;
