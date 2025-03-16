@@ -7,7 +7,7 @@
 
 // Plugin info
 constexpr auto MY_PLUGIN_NAME = "RDF Plugin for Euroscope";
-constexpr auto MY_PLUGIN_VERSION = "1.4.3";
+constexpr auto MY_PLUGIN_VERSION = "1.4.2";
 constexpr auto MY_PLUGIN_DEVELOPER = "Kingfu Chan";
 constexpr auto MY_PLUGIN_COPYRIGHT = "GPLv3 License, Copyright (c) 2025 Kingfu Chan";
 // TrackAudio URLs and parameters
