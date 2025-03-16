@@ -17,7 +17,7 @@ CRDFPlugin::CRDFPlugin()
 	DWORD moduleNameRes = GetModuleFileName(pluginModule, pBuffer, sizeof(pBuffer) / sizeof(TCHAR) - 1);
 	std::filesystem::path dllPath = moduleNameRes != 0 ? pBuffer : "";
 	auto logPath = dllPath.parent_path() / "RDFPlugin.log";
-	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str(), 1000000, 1); // 1 MB of 1 file
+	static plog::RollingFileAppender<plog::TxtFormatterUtcTime> rollingAppender(logPath.c_str()); // no rolling bahaviour
 #ifdef _DEBUG
 	auto severity = plog::verbose;
 #else
@@ -103,7 +103,9 @@ CRDFPlugin::CRDFPlugin()
 
 CRDFPlugin::~CRDFPlugin()
 {
-	// disconnect TrackAudio connection
+	PLOGD << "destroying all screen instances";
+	vecScreen.clear();
+
 	PLOGD << "stopping TrackAudio WS";
 	socketTrackAudio.stop();
 	ix::uninitNetSystem();
@@ -491,8 +493,13 @@ auto CRDFPlugin::TrackAudioStationStateUpdateHandler(const nlohmann::json& data)
 	// used for update message and for "kStationStates" sections
 	// data is json["value"]
 	// frequencies in kHz
-	if (GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT || !GetBridgeMode()) {
-		return; // prevent conflict with multiple ES instances. Since AFV hidden window it unique, only disable TrackAudio
+	if (!GetBridgeMode()
+#ifndef DEBUG
+		// prevent conflict with multiple ES instances. Since AFV hidden window it unique, only disable TrackAudio
+		|| GetConnectionType() != EuroScopePlugIn::CONNECTION_TYPE_DIRECT
+#endif // DEBUG
+		) {
+		return;
 	}
 	std::string callsign = data.value("callsign", "");
 	RDFCommon::chnl_state state;
