@@ -178,6 +178,12 @@ auto CRDFScreen::OnCompileCommand(const char* sCommandLine) -> bool
 			return true;
 		}
 		int bufferPrecision;
+		if (sscanf_s(cmd.c_str(), "PRECISION M%d", &bufferPrecision) == 1) {
+			if (bufferPrecision >= 0) {
+				SaveDrawSetting(SETTING_MIN_PRECISION, "Precision (min)", std::to_string(bufferPrecision), asr);
+				return true;
+			}
+		}
 		if (sscanf_s(cmd.c_str(), "PRECISION L%d", &bufferPrecision) == 1) {
 			if (bufferPrecision >= 0) {
 				SaveDrawSetting(SETTING_LOW_PRECISION, "Precision (low)", std::to_string(bufferPrecision), asr);
