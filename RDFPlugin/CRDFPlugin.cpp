@@ -581,10 +581,11 @@ auto CRDFPlugin::GenerateDrawPosition(const std::string& callsign) -> RDFCommon:
 						radius = offset;
 					}
 					if (offset > 0) {
-						double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
-						if (distance < minPrecision) {
-							distance = minPrecision;
+						double effectiveOffset = offset;
+						if (minPrecision > 0 && effectiveOffset < minPrecision) {
+							effectiveOffset = minPrecision;
 						}
+						double distance = abs(disDistance(rdGenerator)) / 3.0 * effectiveOffset;
 						double bearing = disBearing(rdGenerator);
 						RDFCommon::AddOffset(pos, bearing, distance);
 					}
