@@ -26,6 +26,7 @@ constexpr auto SETTING_CONCURRENT_RGB = "ConcurrentTransmissionRGB";
 constexpr auto SETTING_CIRCLE_RADIUS = "Radius";
 constexpr auto SETTING_THRESHOLD = "Threshold";
 constexpr auto SETTING_PRECISION = "Precision";
+constexpr auto SETTING_MIN_PRECISION = "MinPrecision";
 constexpr auto SETTING_LOW_ALTITUDE = "LowAltitude";
 constexpr auto SETTING_HIGH_ALTITUDE = "HighAltitude";
 constexpr auto SETTING_LOW_PRECISION = "LowPrecision";
@@ -83,6 +84,7 @@ namespace RDFCommon {
 		int circleThreshold;
 		int lowAltitude;
 		int highAltitude;
+		int minPrecision;
 		int lowPrecision;
 		int highPrecision;
 		bool drawController;
@@ -96,6 +98,7 @@ namespace RDFCommon {
 			circleThreshold = -1; // Default: -1 (always use pixel)
 			circlePrecision = 0; // Default: no offset (nautical miles), range: [0, +inf)
 			lowAltitude = 0; // Default: 0 (feet)
+			minPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
 			lowPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)
 			highAltitude = 0; // Default: 0 (feet)
 			highPrecision = 0; // Default: 0 (nautical miles), range: [0, +inf)

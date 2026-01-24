@@ -104,14 +104,16 @@ This table shows all RDF drawing parameters. All entries allow per-ASR configura
   + `[Keyword]` and `[Value]` are the same as above.
   + Settings will be saved to ASR file.
   + E.g. `.RDF ASR DRAW 0` will disable RDF in current ASR.
-
 + `.RDF STYLE [Style Name]`
   + Designed for pre-defined scenarios and real-time switching.
   + Requires an **RDFStyle.json** file next to DLL file. [JSON format](#example---style)
   + `[Style Name]` is case-sensitive and must be exact match.
-  + Re-application is needed after hot-editting JSON file.
-  + STYLE settings will not be saved when exiting EuroScope.
-  + Use `.RDF STYLE OFF/0` or enter empty style name (keep the trailing ` `) to cancel style.
+  + Style will be cancelled when:
+    + using `.RDF STYLE OFF/0`.
+    + using empty style name but keep the trailing space.
+    + JSON file is broken or any error occurs.
+  + Re-application is needed after editting JSON file.
+  + STYLE settings will not be saved when exiting EuroScope. For lasting effect use per-ASR settings or plugin settings instead.
 
 ### Random Offset Schematic
 

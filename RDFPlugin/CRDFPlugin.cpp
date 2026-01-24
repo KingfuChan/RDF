@@ -324,6 +324,15 @@ auto CRDFPlugin::LoadDrawingSettings(const std::optional<std::shared_ptr<CRDFScr
 				PLOGV << SETTING_HIGH_ALTITUDE << ": " << currentDrawSettings->highAltitude;
 			}
 		}
+		auto cstrMinPrecision = GetSetting(SETTING_MIN_PRECISION);
+		if (cstrMinPrecision.size())
+		{
+			int parsedPrecision = std::stoi(cstrMinPrecision);
+			if (parsedPrecision >= 0) {
+				currentDrawSettings->minPrecision = parsedPrecision;
+				PLOGV << SETTING_MIN_PRECISION << ": " << currentDrawSettings->minPrecision;
+			}
+		}
 		auto cstrLowPrecision = GetSetting(SETTING_LOW_PRECISION);
 		if (cstrLowPrecision.size())
 		{
@@ -441,6 +450,12 @@ auto CRDFPlugin::LoadDrawingStyle(const std::string& styleName) -> bool
 					if (val > 0) {
 						currentDrawSettings->highAltitude = val;
 						PLOGV << SETTING_HIGH_ALTITUDE << ": " << currentDrawSettings->highAltitude;
+					}
+				}
+				else if (key == SETTING_MIN_PRECISION) {
+					if (val >= 0) {
+						currentDrawSettings->minPrecision = val;
+						PLOGV << SETTING_MIN_PRECISION << ": " << currentDrawSettings->minPrecision;
 					}
 				}
 				else if (key == SETTING_LOW_PRECISION) {
@@ -565,8 +580,12 @@ auto CRDFPlugin::GenerateDrawPosition(const std::string& callsign) -> RDFCommon:
 						}
 						radius = offset;
 					}
-					if (offset > 0) { // add random offset
-						double distance = abs(disDistance(rdGenerator)) / 3.0 * offset;
+					if (offset > 0) {
+						double effectiveOffset = offset;
+						if (minPrecision > 0 && effectiveOffset < minPrecision) {
+							effectiveOffset = minPrecision;
+						}
+						double distance = abs(disDistance(rdGenerator)) / 3.0 * effectiveOffset;
 						double bearing = disBearing(rdGenerator);
 						RDFCommon::AddOffset(pos, bearing, distance);
 					}
